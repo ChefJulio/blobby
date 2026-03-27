@@ -43,6 +43,68 @@ export default function Blobby({ audioSource }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
 
+  // Draw idle blob when no audio source
+  useEffect(() => {
+    if (audioSource) return;
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+
+    function drawIdle() {
+      const rect = container.getBoundingClientRect();
+      const W = rect.width;
+      const H = rect.height;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      canvas.style.width = W + 'px';
+      canvas.style.height = H + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.fillStyle = BG_COLOR;
+      ctx.fillRect(0, 0, W, H);
+
+      const cx = W / 2;
+      const cy = H / 2;
+      const maxRadius = Math.min(W / 2, H / 2) - 4;
+      const radius = maxRadius * 0.38;
+
+      // Circle outline
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Face
+      const faceR = radius * 0.55;
+      const faceColor = 'rgba(255,255,255,0.7)';
+      ctx.fillStyle = faceColor;
+      ctx.strokeStyle = faceColor;
+      ctx.lineWidth = 1.5;
+      ctx.lineCap = 'round';
+      const eyeY = cy - faceR * 0.15;
+      const eyeSpread = faceR * 0.35;
+      const eyeR = faceR * 0.09;
+      ctx.beginPath(); ctx.arc(cx - eyeSpread, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(cx + eyeSpread, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
+      const mouthY = cy + faceR * 0.1;
+      const mR = faceR * 0.28;
+      ctx.beginPath();
+      ctx.arc(cx, mouthY, mR, 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+    }
+
+    drawIdle();
+    window.addEventListener('resize', drawIdle);
+    return () => window.removeEventListener('resize', drawIdle);
+  }, [audioSource]);
+
   useEffect(() => {
     if (!audioSource) return;
 

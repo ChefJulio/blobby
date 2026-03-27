@@ -109,7 +109,9 @@ function App() {
 
     media.addEventListener('loadedmetadata', () => {
       setDuration(media.duration);
-      setHasVideo(media.videoWidth > 0 && media.videoHeight > 0);
+      const isVideo = media.videoWidth > 0 && media.videoHeight > 0;
+      setHasVideo(isVideo);
+      if (isVideo) setShowVideo(true);
     });
     media.addEventListener('ended', () => setIsPlaying(false));
     media.addEventListener('play', () => setIsPlaying(true));
