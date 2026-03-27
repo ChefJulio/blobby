@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import Blobby from './Blobby';
 import './App.css';
 
-const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mkv,.avi,.mov,.webm';
+const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mov';
 
 function App() {
   const [audioSource, setAudioSource] = useState(null);
