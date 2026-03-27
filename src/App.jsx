@@ -1,6 +1,8 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import Blobby from './Blobby';
 import './App.css';
+
+const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mkv,.avi,.mov,.webm';
 
 function App() {
   const [audioSource, setAudioSource] = useState(null);
@@ -9,20 +11,31 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [scrubPos, setScrubPos] = useState(0);
+  const [hasVideo, setHasVideo] = useState(false);
+  const [showVideo, setShowVideo] = useState(false);
   const audioCtxRef = useRef(null);
   const audioElRef = useRef(null);
   const micStreamRef = useRef(null);
   const rafRef = useRef(null);
+  const seekBarRef = useRef(null);
+  const scrubPosRef = useRef(0);
+  const videoContainerRef = useRef(null);
 
   const cleanup = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (audioElRef.current) { audioElRef.current.pause(); audioElRef.current = null; }
     if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
     if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
+    if (videoContainerRef.current) videoContainerRef.current.innerHTML = '';
     setAudioSource(null);
     setIsPlaying(false);
     setProgress(0);
     setDuration(0);
+    setHasVideo(false);
+    setShowVideo(false);
   }, []);
 
   const setupAnalysers = useCallback((ctx, source, isMono) => {
@@ -63,9 +76,11 @@ function App() {
     }
   }, [setupAnalysers, cleanup]);
 
-  const startProgressLoop = useCallback((audio) => {
+  // Always sync progress from audio.currentTime — fixes scrub bar getting stuck
+  const startProgressLoop = useCallback(() => {
     function tick() {
-      if (audio && !audio.paused) {
+      const audio = audioElRef.current;
+      if (audio) {
         setProgress(audio.currentTime);
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -74,28 +89,38 @@ function App() {
   }, []);
 
   const handleFile = useCallback((file) => {
-    if (!file || !file.type.startsWith('audio/')) return;
+    if (!file) return;
     cleanup();
     setFileName(file.name);
 
     const ctx = new AudioContext();
     audioCtxRef.current = ctx;
-    const audio = new Audio();
-    audio.crossOrigin = 'anonymous';
-    audio.src = URL.createObjectURL(file);
-    audioElRef.current = audio;
+    const media = document.createElement('video');
+    media.crossOrigin = 'anonymous';
+    media.playsInline = true;
+    media.src = URL.createObjectURL(file);
+    audioElRef.current = media;
 
-    audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
-    audio.addEventListener('ended', () => setIsPlaying(false));
-    audio.addEventListener('play', () => setIsPlaying(true));
-    audio.addEventListener('pause', () => setIsPlaying(false));
+    // Append to container so it can be shown for video files
+    if (videoContainerRef.current) {
+      videoContainerRef.current.innerHTML = '';
+      videoContainerRef.current.appendChild(media);
+    }
 
-    const source = ctx.createMediaElementSource(audio);
+    media.addEventListener('loadedmetadata', () => {
+      setDuration(media.duration);
+      setHasVideo(media.videoWidth > 0 && media.videoHeight > 0);
+    });
+    media.addEventListener('ended', () => setIsPlaying(false));
+    media.addEventListener('play', () => setIsPlaying(true));
+    media.addEventListener('pause', () => setIsPlaying(false));
+
+    const source = ctx.createMediaElementSource(media);
     setupAnalysers(ctx, source, false);
-    audio.play();
+    media.play();
     setIsPlaying(true);
     setMode('file');
-    startProgressLoop(audio);
+    startProgressLoop();
   }, [setupAnalysers, cleanup, startProgressLoop]);
 
   const togglePlay = useCallback(() => {
@@ -109,20 +134,89 @@ function App() {
     }
   }, []);
 
-  const seek = useCallback((e) => {
+  // --- Seek bar scrubbing ---
+  const getScrubFraction = useCallback((clientX) => {
+    const bar = seekBarRef.current;
+    if (!bar) return 0;
+    const rect = bar.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  }, []);
+
+  const handleScrubStart = useCallback((clientX) => {
+    if (!duration) return;
+    setScrubbing(true);
+    const pos = getScrubFraction(clientX) * duration;
+    scrubPosRef.current = pos;
+    setScrubPos(pos);
+  }, [duration, getScrubFraction]);
+
+  const handleScrubMove = useCallback((clientX) => {
+    if (!duration) return;
+    const pos = getScrubFraction(clientX) * duration;
+    scrubPosRef.current = pos;
+    setScrubPos(pos);
+  }, [duration, getScrubFraction]);
+
+  const handleScrubEnd = useCallback(() => {
     const audio = audioElRef.current;
-    if (!audio || !duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = t * duration;
-    setProgress(audio.currentTime);
+    if (audio && duration) {
+      audio.currentTime = scrubPosRef.current;
+      setProgress(scrubPosRef.current);
+    }
+    setScrubbing(false);
   }, [duration]);
 
+  const onSeekMouseDown = useCallback((e) => {
+    e.preventDefault();
+    handleScrubStart(e.clientX);
+  }, [handleScrubStart]);
+
+  const onSeekTouchStart = useCallback((e) => {
+    handleScrubStart(e.touches[0].clientX);
+  }, [handleScrubStart]);
+
+  // Global move/up listeners while scrubbing
+  useEffect(() => {
+    if (!scrubbing) return;
+
+    const onMouseMove = (e) => handleScrubMove(e.clientX);
+    const onMouseUp = () => handleScrubEnd();
+    const onTouchMove = (e) => {
+      e.preventDefault();
+      handleScrubMove(e.touches[0].clientX);
+    };
+    const onTouchEnd = () => handleScrubEnd();
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [scrubbing, handleScrubMove, handleScrubEnd]);
+
+  // --- Drag and drop ---
   const handleDrop = useCallback((e) => {
     e.preventDefault();
+    setDragOver(false);
     const file = e.dataTransfer?.files?.[0];
     if (file) handleFile(file);
   }, [handleFile]);
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setDragOver(false);
+  }, []);
 
   const handleFileInput = useCallback((e) => {
     const file = e.target.files?.[0];
@@ -136,15 +230,31 @@ function App() {
     return `${m}:${String(sec).padStart(2, '0')}`;
   };
 
+  const displayProgress = scrubbing ? scrubPos : progress;
+  const seekPercent = duration ? `${(displayProgress / duration) * 100}%` : '0%';
+
   return (
     <div
       className="app"
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       <div className="blobby-container">
         <Blobby audioSource={audioSource} />
       </div>
+
+      {/* Video picture-in-picture */}
+      <div
+        className={`video-pip${showVideo && hasVideo ? ' visible' : ''}`}
+        ref={videoContainerRef}
+      />
+
+      {dragOver && (
+        <div className="drag-overlay">
+          <div className="drag-label">Drop audio file</div>
+        </div>
+      )}
 
       {!mode && (
         <div className="controls-overlay">
@@ -154,7 +264,7 @@ function App() {
             <button onClick={startMic}>Use Microphone</button>
             <label className="file-button">
               Choose File
-              <input type="file" accept="audio/*" onChange={handleFileInput} hidden />
+              <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </label>
           </div>
         </div>
@@ -162,8 +272,19 @@ function App() {
 
       {mode && (
         <div className="bottom-bar">
+          {mode === 'file' && (
+            <div
+              className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
+              ref={seekBarRef}
+              onMouseDown={onSeekMouseDown}
+              onTouchStart={onSeekTouchStart}
+            >
+              <div className="seek-fill" style={{ width: seekPercent }} />
+              <div className="seek-thumb" style={{ left: seekPercent }} />
+            </div>
+          )}
+
           <div className="bar-row">
-            {/* Source switcher */}
             <div className="source-tabs">
               <button className={`tab ${mode === 'file' ? 'active' : ''}`} onClick={() => document.getElementById('file-pick').click()}>
                 File
@@ -171,32 +292,35 @@ function App() {
               <button className={`tab ${mode === 'mic' ? 'active' : ''}`} onClick={startMic}>
                 Mic
               </button>
-              <input id="file-pick" type="file" accept="audio/*" onChange={handleFileInput} hidden />
+              <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </div>
 
-            {/* Player controls (file mode only) */}
             {mode === 'file' && (
               <>
                 <button className="play-btn" onClick={togglePlay}>
                   {isPlaying ? '||' : '\u25B6'}
                 </button>
-                <span className="time">{formatTime(progress)}</span>
-                <div className="seek-bar" onClick={seek}>
-                  <div className="seek-fill" style={{ width: duration ? `${(progress / duration) * 100}%` : '0%' }} />
-                </div>
-                <span className="time">{formatTime(duration)}</span>
+                <span className="time">
+                  {formatTime(displayProgress)} / {formatTime(duration)}
+                </span>
+                <span className="file-name">{fileName}</span>
               </>
+            )}
+
+            {mode === 'file' && hasVideo && (
+              <button
+                className={`tab ${showVideo ? 'active' : ''}`}
+                onClick={() => setShowVideo(v => !v)}
+              >
+                Video
+              </button>
             )}
 
             {mode === 'mic' && <span className="mic-label">Listening...</span>}
 
-            {/* File name */}
-            {mode === 'file' && <span className="file-name">{fileName}</span>}
-
-            {/* New file */}
             <label className="file-button small">
               {mode === 'file' ? 'Change' : 'Load File'}
-              <input type="file" accept="audio/*" onChange={handleFileInput} hidden />
+              <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </label>
           </div>
         </div>
