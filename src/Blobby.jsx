@@ -129,6 +129,7 @@ export default function Blobby({ audioSource }) {
     let circSurpriseTimer = 0;
     let circRecentPeak = 0;
     let circSilenceTime = 0;
+    let circBobble = 0;
     let lastTs = 0;
     let raf;
 
@@ -357,10 +358,10 @@ export default function Blobby({ audioSource }) {
       const grin = circGrinTimer > 1 ? 1 : circGrinTimer;
       const surprise = circSurpriseTimer > 0.5 ? 1 : circSurpriseTimer * 2;
 
-      const isSmiling = grin <= 0.5 && surprise <= 0.5;
       const hasSignal = bassEnergy > 0.01;
-      const bobble = (isSmiling && hasSignal) ? Math.sin(Date.now() * 0.004) * 2 : 0;
-      const faceCy = cy + bobble;
+      const bobbleTarget = hasSignal ? Math.sin(Date.now() * 0.004) * 2 : 0;
+      circBobble += (bobbleTarget - circBobble) * 0.15;
+      const faceCy = cy + circBobble;
 
       // Eyes
       const eyeY = faceCy - faceR * 0.15;
