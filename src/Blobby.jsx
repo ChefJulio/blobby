@@ -270,13 +270,17 @@ export default function Blobby({ audioSource }) {
       ctx.lineWidth = 1.5;
       ctx.lineCap = 'round';
 
-      // Drop detection
-      let rawEnergy = 0;
-      for (let i = 0; i < NUM_BARS; i++) rawEnergy += current[i];
-      rawEnergy = Math.min(1, rawEnergy / (NUM_BARS * 0.12));
-      circFaceBaseline += (rawEnergy - circFaceBaseline) * 0.01;
-      const faceSpike = rawEnergy - circFaceBaseline;
-      if (faceSpike > 0.25) circGrinTimer = 3.0;
+      // Bass-driven grin: monitor low frequency bins only
+      const bassCount = 8;
+      let bassEnergy = 0;
+      for (let i = 0; i < bassCount; i++) {
+        bassEnergy += current[i];
+        bassEnergy += current[NUM_BARS - 1 - i];
+      }
+      bassEnergy = Math.min(1, bassEnergy / (bassCount * 2 * 0.1));
+      circFaceBaseline += (bassEnergy - circFaceBaseline) * 0.008;
+      const bassSpike = bassEnergy - circFaceBaseline;
+      if (bassSpike > 0.15) circGrinTimer = Math.max(circGrinTimer, 3.0);
       circGrinTimer = Math.max(0, circGrinTimer - dt);
       const e = circGrinTimer > 1 ? 1 : circGrinTimer;
 
