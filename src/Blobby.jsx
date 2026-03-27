@@ -209,18 +209,21 @@ export default function Blobby({ audioSource }) {
         return r;
       }
 
-      // Trail fills with glow
+      // Trail fills (skip shadow on large canvases — too expensive fullscreen)
+      const useGlow = W < 600;
       for (let l = 0; l < CIRC_LAYERS; l++) {
         const radii = toRadii(circTrails[l]);
-        ctx.save();
-        ctx.shadowColor = layerColors[l];
-        ctx.shadowBlur = 14;
+        if (useGlow) {
+          ctx.save();
+          ctx.shadowColor = layerColors[l];
+          ctx.shadowBlur = 8;
+        }
         ctx.fillStyle = layerColors[l];
         ctx.beginPath();
         smoothPath(radii);
         ctx.closePath();
         ctx.fill();
-        ctx.restore();
+        if (useGlow) ctx.restore();
       }
 
       // Black fill inside current shape
@@ -231,18 +234,14 @@ export default function Blobby({ audioSource }) {
       ctx.closePath();
       ctx.fill();
 
-      // Subtle white border glow
-      ctx.save();
-      ctx.shadowColor = 'rgba(180,200,255,0.12)';
-      ctx.shadowBlur = 4;
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      // White border (no shadow fullscreen — the stroke itself is enough)
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
       ctx.lineWidth = 2;
       ctx.lineJoin = 'round';
       ctx.beginPath();
       smoothPath(currentRadii);
       ctx.closePath();
       ctx.stroke();
-      ctx.restore();
 
       // Core bright line
       ctx.strokeStyle = 'rgba(255,255,255,0.9)';
