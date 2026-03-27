@@ -358,9 +358,8 @@ export default function Blobby({ audioSource }) {
       const grin = circGrinTimer > 1 ? 1 : circGrinTimer;
       const surprise = circSurpriseTimer > 0.5 ? 1 : circSurpriseTimer * 2;
 
-      const hasSignal = bassEnergy > 0.01;
-      const bobbleTarget = hasSignal ? Math.sin(Date.now() * 0.004) * 2 : 0;
-      circBobble += (bobbleTarget - circBobble) * 0.15;
+      const bobbleTarget = Math.sin(Date.now() * 0.004) * 2 * Math.min(1, bassEnergy * 3);
+      circBobble += (bobbleTarget - circBobble) * 0.1;
       const faceCy = cy + circBobble;
 
       // Eyes
