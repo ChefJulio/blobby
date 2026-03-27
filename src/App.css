@@ -20,6 +20,7 @@ body {
   inset: 0;
 }
 
+/* Landing overlay */
 .controls-overlay {
   position: absolute;
   inset: 0;
@@ -65,24 +66,128 @@ button:hover, .file-button:hover {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-.file-controls {
+/* Bottom bar */
+.bottom-bar {
   position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  bottom: 0;
+  left: 0;
+  right: 0;
   z-index: 10;
+  padding: 10px 16px;
+  background: linear-gradient(transparent, rgba(8, 6, 15, 0.9) 40%);
 }
 
-.file-name {
-  font-size: 12px;
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Source tabs */
+.source-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.tab {
+  padding: 4px 12px;
+  font-size: 11px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
   color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+}
+
+.tab.active {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+}
+
+.tab:hover:not(.active) {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Play button */
+.play-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.play-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Time display */
+.time {
+  font-size: 11px;
   font-family: monospace;
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+  min-width: 36px;
+}
+
+/* Seek bar */
+.seek-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+  min-width: 80px;
+}
+
+.seek-fill {
+  height: 100%;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 2px;
+  transition: width 0.1s linear;
+}
+
+.seek-bar:hover {
+  height: 6px;
+}
+
+.seek-bar:hover .seek-fill {
+  background: white;
+}
+
+/* Mic label */
+.mic-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  flex: 1;
+}
+
+/* File name */
+.file-name {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 .file-button.small {
   padding: 4px 12px;
   font-size: 11px;
+  flex-shrink: 0;
 }
