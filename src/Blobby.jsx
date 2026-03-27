@@ -206,19 +206,17 @@ export default function Blobby({ audioSource }) {
         return r;
       }
 
-      // Draw trail strokes
+      // Draw trail fills (back to front, black fill on top covers the inside)
       for (let l = 0; l < CIRC_LAYERS; l++) {
         const radii = toRadii(circTrails[l]);
         ctx.save();
         ctx.shadowColor = layerColors[l];
         ctx.shadowBlur = 6;
-        ctx.strokeStyle = layerColors[l];
-        ctx.lineWidth = 2;
-        ctx.lineJoin = 'round';
+        ctx.fillStyle = layerColors[l];
         ctx.beginPath();
         smoothPath(radii);
         ctx.closePath();
-        ctx.stroke();
+        ctx.fill();
         ctx.restore();
       }
 
