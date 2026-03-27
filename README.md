@@ -24,7 +24,7 @@ Open http://localhost:5173, drop an audio file or click "Use Microphone".
 
 ## How It Works
 
-Blobby reads real-time frequency data from the Web Audio API's AnalyserNode. The raw FFT bins are mapped to 64 logarithmic frequency bands, smoothed, mirrored for symmetry, and drawn as a smooth closed bezier curve around a central circle.
+Blobby reads real-time frequency data from the Web Audio API's AnalyserNode. The raw FFT bins are mapped to 64 logarithmic frequency bands, smoothed, and split by stereo channel (left channel drives the right side, right channel drives the left side). Bass frequencies blend at the bottom seam so both sides converge on kicks. The result is drawn as a smooth closed bezier curve around a central circle.
 
 Five trail layers track peak amplitudes with different decay rates, creating neon afterglow rings when peaks recede. A rotating prominence cycle ensures each color takes turns being the most visible.
 
