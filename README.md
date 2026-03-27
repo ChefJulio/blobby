@@ -1,16 +1,39 @@
-# React + Vite
+# Blobby
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A cute audio-reactive blob visualizer. Drop a song on him and watch him dance.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Smooth bezier blob shape driven by frequency spectrum
+- L/R stereo channel separation (panned elements show on their side)
+- 5 neon trail layers (green, red, blue, pink) with rotating prominence
+- Dynamic per-bin threshold so only real peaks punch through
+- Auto-normalization adapts to any track's loudness
+- Drop detection triggers a :D grin on energy spikes
+- Bass at bottom, highs at top, symmetric left/right
+- Microphone input or audio file drag-and-drop
 
-## React Compiler
+## Getting Started
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+npm run dev
+```
 
-## Expanding the ESLint configuration
+Open http://localhost:5173, drop an audio file or click "Use Microphone".
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## How It Works
+
+Blobby reads real-time frequency data from the Web Audio API's AnalyserNode. The raw FFT bins are mapped to 64 logarithmic frequency bands, smoothed, mirrored for symmetry, and drawn as a smooth closed bezier curve around a central circle.
+
+Five trail layers track peak amplitudes with different decay rates, creating neon afterglow rings when peaks recede. A rotating prominence cycle ensures each color takes turns being the most visible.
+
+The smiley face tracks overall energy against a slow-moving baseline. When energy spikes well above the baseline (a "drop"), Blobby grins for a few seconds before relaxing back to a gentle smile.
+
+## Origin
+
+Extracted from [Overtooled](https://github.com/ChefJulio/overtooled)'s Audio Lab visualizer.
+
+## License
+
+MIT
