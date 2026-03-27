@@ -136,8 +136,10 @@ export default function Blobby({ audioSource }) {
         const valR = smR[lo] * (1 - frac) + smR[hi] * frac;
         const blend = 1 - (i / (half - 1));
         const blendW = blend * blend;
-        mirrored[i] = valL * (1 - blendW) + ((valL + valR) / 2) * blendW;
-        mirrored[NUM_BARS - 1 - i] = valR * (1 - blendW) + ((valL + valR) / 2) * blendW;
+        const mixR = valR * (1 - blendW) + ((valL + valR) / 2) * blendW;
+        const mixL = valL * (1 - blendW) + ((valL + valR) / 2) * blendW;
+        mirrored[i] = mixR;              // right side (CW from bottom)
+        mirrored[NUM_BARS - 1 - i] = mixL; // left side (CCW from bottom)
       }
 
       // Auto-normalization
