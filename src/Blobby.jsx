@@ -64,6 +64,9 @@ export default function Blobby({ audioSource }) {
     let circPeakTracker = 0.01;
     let circFaceBaseline = 0;
     let circGrinTimer = 0;
+    let circSurpriseTimer = 0;
+    let circRecentPeak = 0;
+    let circSilenceTime = 0;
     let lastTs = 0;
     let raf;
 
@@ -176,12 +179,12 @@ export default function Blobby({ audioSource }) {
         }
       }
 
+      // ROYGBV trail colors
       const layerColors = [
-        'rgba(0,255,70,0.7)', 'rgba(255,40,40,0.7)', 'rgba(0,120,255,0.7)',
-        'rgba(255,50,200,0.45)', 'rgba(255,150,250,0.35)'
+        'rgba(255,30,30,0.7)', 'rgba(255,160,0,0.7)', 'rgba(0,255,70,0.7)',
+        'rgba(0,120,255,0.7)', 'rgba(160,0,255,0.7)'
       ];
 
-      // Path helpers
       function smoothPath(radii) {
         const aL = startAngle + (NUM_BARS - 1) * angleStep;
         ctx.moveTo(
@@ -206,17 +209,16 @@ export default function Blobby({ audioSource }) {
         return r;
       }
 
-      // Draw trail fills with heavy glow (back to front)
+      // Trail fills with glow
       for (let l = 0; l < CIRC_LAYERS; l++) {
         const radii = toRadii(circTrails[l]);
         ctx.save();
         ctx.shadowColor = layerColors[l];
-        ctx.shadowBlur = 18;
+        ctx.shadowBlur = 14;
         ctx.fillStyle = layerColors[l];
         ctx.beginPath();
         smoothPath(radii);
         ctx.closePath();
-        ctx.fill();
         ctx.fill();
         ctx.restore();
       }
@@ -229,12 +231,12 @@ export default function Blobby({ audioSource }) {
       ctx.closePath();
       ctx.fill();
 
-      // Glowing white border
+      // Subtle white border glow
       ctx.save();
-      ctx.shadowColor = 'rgba(180,200,255,0.6)';
-      ctx.shadowBlur = 20;
-      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-      ctx.lineWidth = 4;
+      ctx.shadowColor = 'rgba(180,200,255,0.12)';
+      ctx.shadowBlur = 4;
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.lineWidth = 2;
       ctx.lineJoin = 'round';
       ctx.beginPath();
       smoothPath(currentRadii);
@@ -242,19 +244,8 @@ export default function Blobby({ audioSource }) {
       ctx.stroke();
       ctx.restore();
 
-      ctx.save();
-      ctx.shadowColor = 'rgba(200,220,255,0.7)';
-      ctx.shadowBlur = 10;
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-      ctx.lineWidth = 2.5;
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      smoothPath(currentRadii);
-      ctx.closePath();
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      // Core bright line
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
       ctx.lineWidth = 1.5;
       ctx.lineJoin = 'round';
       ctx.beginPath();
@@ -262,7 +253,7 @@ export default function Blobby({ audioSource }) {
       ctx.closePath();
       ctx.stroke();
 
-      // Face :) / :D
+      // Face
       const faceR = innerRadius * 0.55;
       const faceColor = 'rgba(255,255,255,0.7)';
       ctx.fillStyle = faceColor;
@@ -270,7 +261,7 @@ export default function Blobby({ audioSource }) {
       ctx.lineWidth = 1.5;
       ctx.lineCap = 'round';
 
-      // Bass-driven grin: monitor low frequency bins only
+      // Bass energy for face reactions
       const bassCount = 8;
       let bassEnergy = 0;
       for (let i = 0; i < bassCount; i++) {
@@ -278,22 +269,48 @@ export default function Blobby({ audioSource }) {
         bassEnergy += current[NUM_BARS - 1 - i];
       }
       bassEnergy = Math.min(1, bassEnergy / (bassCount * 2 * 0.1));
-      circFaceBaseline += (bassEnergy - circFaceBaseline) * 0.008;
+
+      // Asymmetric baseline
+      const baseRate = bassEnergy > circFaceBaseline ? 0.15 : 0.08;
+      circFaceBaseline += (bassEnergy - circFaceBaseline) * baseRate;
       const bassSpike = bassEnergy - circFaceBaseline;
-      if (bassSpike > 0.15) circGrinTimer = Math.max(circGrinTimer, 3.0);
+
+      // :o surprise detection
+      if (bassEnergy > circRecentPeak) circRecentPeak = bassEnergy;
+      else circRecentPeak *= 0.99;
+      if (bassEnergy < 0.03) circSilenceTime += dt;
+      else circSilenceTime = 0;
+      if (circRecentPeak > 0.35 && circSilenceTime > 0.3 && circGrinTimer <= 0 && circSurpriseTimer <= 0) {
+        circSurpriseTimer = 0.8;
+        circRecentPeak = 0;
+        circSilenceTime = 0;
+      }
+
+      // :D grin detection
+      if (bassSpike > 0.75) {
+        circGrinTimer = Math.max(circGrinTimer, 3.0);
+        circSurpriseTimer = 0;
+      }
       circGrinTimer = Math.max(0, circGrinTimer - dt);
-      const e = circGrinTimer > 1 ? 1 : circGrinTimer;
+      circSurpriseTimer = Math.max(0, circSurpriseTimer - dt);
+      const grin = circGrinTimer > 1 ? 1 : circGrinTimer;
+      const surprise = circSurpriseTimer > 0.5 ? 1 : circSurpriseTimer * 2;
+
+      const isSmiling = grin <= 0.5 && surprise <= 0.5;
+      const hasSignal = bassEnergy > 0.01;
+      const bobble = (isSmiling && hasSignal) ? Math.sin(Date.now() * 0.004) * 2 : 0;
+      const faceCy = cy + bobble;
 
       // Eyes
-      const eyeY = cy - faceR * 0.15;
+      const eyeY = faceCy - faceR * 0.15;
       const eyeSpread = faceR * 0.35;
       const eyeR = faceR * 0.09;
       ctx.beginPath(); ctx.arc(cx - eyeSpread, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(cx + eyeSpread, eyeY, eyeR, 0, Math.PI * 2); ctx.fill();
 
       // Mouth
-      const mouthY = cy + faceR * 0.1;
-      if (e > 0.5) {
+      const mouthY = faceCy + faceR * 0.1;
+      if (grin > 0.5) {
         const mR = faceR * 0.4;
         ctx.beginPath();
         ctx.arc(cx, mouthY, mR, 0.05 * Math.PI, 0.95 * Math.PI);
@@ -301,6 +318,12 @@ export default function Blobby({ audioSource }) {
         ctx.stroke();
         ctx.fillStyle = 'rgba(255,255,255,0.1)';
         ctx.fill();
+        ctx.fillStyle = faceColor;
+      } else if (surprise > 0.5) {
+        const mR = faceR * 0.15;
+        ctx.beginPath();
+        ctx.arc(cx, mouthY + faceR * 0.05, mR, 0, Math.PI * 2);
+        ctx.stroke();
       } else {
         const mR = faceR * 0.28;
         ctx.beginPath();
