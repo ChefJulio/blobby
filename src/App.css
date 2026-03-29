@@ -137,10 +137,10 @@ body {
 
 .search-results {
   position: absolute;
-  top: 100%;
+  bottom: 100%;
   left: 0;
   right: 0;
-  margin-top: 6px;
+  margin-bottom: 6px;
   display: flex;
   flex-direction: column;
   max-height: 280px;
