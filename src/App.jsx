@@ -3,6 +3,12 @@ import Blobby from './Blobby';
 import './App.css';
 
 const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mov';
+const AUDIUS_API = 'https://api.audius.co/v1';
+const AUDIUS_APP = 'blobby';
+
+function isAudiusUrl(str) {
+  return /audius\.co\//.test(str);
+}
 
 function App() {
   const [audioSource, setAudioSource] = useState(null);
@@ -16,6 +22,10 @@ function App() {
   const [scrubPos, setScrubPos] = useState(0);
   const [hasVideo, setHasVideo] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+  // Audius
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const audioCtxRef = useRef(null);
   const audioElRef = useRef(null);
   const micStreamRef = useRef(null);
@@ -76,7 +86,6 @@ function App() {
     }
   }, [setupAnalysers, cleanup]);
 
-  // Always sync progress from audio.currentTime — fixes scrub bar getting stuck
   const startProgressLoop = useCallback(() => {
     function tick() {
       const audio = audioElRef.current;
@@ -87,6 +96,30 @@ function App() {
     }
     rafRef.current = requestAnimationFrame(tick);
   }, []);
+
+  const playAudioUrl = useCallback((url, name) => {
+    cleanup();
+    setFileName(name);
+
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    const audio = new Audio();
+    audio.crossOrigin = 'anonymous';
+    audio.src = url;
+    audioElRef.current = audio;
+
+    audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
+    audio.addEventListener('ended', () => setIsPlaying(false));
+    audio.addEventListener('play', () => setIsPlaying(true));
+    audio.addEventListener('pause', () => setIsPlaying(false));
+
+    const source = ctx.createMediaElementSource(audio);
+    setupAnalysers(ctx, source, false);
+    audio.play();
+    setIsPlaying(true);
+    setMode('file');
+    startProgressLoop();
+  }, [setupAnalysers, cleanup, startProgressLoop]);
 
   const handleFile = useCallback((file) => {
     if (!file) return;
@@ -101,7 +134,6 @@ function App() {
     media.src = URL.createObjectURL(file);
     audioElRef.current = media;
 
-    // Append to container so it can be shown for video files
     if (videoContainerRef.current) {
       videoContainerRef.current.innerHTML = '';
       videoContainerRef.current.appendChild(media);
@@ -124,6 +156,45 @@ function App() {
     setMode('file');
     startProgressLoop();
   }, [setupAnalysers, cleanup, startProgressLoop]);
+
+  // --- Audius ---
+  const playAudiusTrack = useCallback((track) => {
+    const streamUrl = `${AUDIUS_API}/tracks/${track.id}/stream?app_name=${AUDIUS_APP}`;
+    const label = `${track.user.name} - ${track.title}`;
+    playAudioUrl(streamUrl, label);
+    setSearchResults(null);
+    setSearchQuery('');
+  }, [playAudioUrl]);
+
+  const handleSearch = useCallback(async (query) => {
+    if (!query.trim()) return;
+    setSearchLoading(true);
+    try {
+      let data;
+      if (isAudiusUrl(query)) {
+        const res = await fetch(`${AUDIUS_API}/resolve?url=${encodeURIComponent(query)}&app_name=${AUDIUS_APP}`);
+        if (!res.ok) throw new Error('Track not found');
+        const json = await res.json();
+        data = json.data;
+        // Resolve returns a single track — play it directly
+        if (data && data.id) {
+          playAudiusTrack(data);
+          setSearchLoading(false);
+          return;
+        }
+      } else {
+        const res = await fetch(`${AUDIUS_API}/tracks/search?query=${encodeURIComponent(query)}&limit=8&app_name=${AUDIUS_APP}`);
+        if (!res.ok) throw new Error('Search failed');
+        const json = await res.json();
+        data = json.data || [];
+        setSearchResults(data);
+      }
+    } catch (err) {
+      console.error('Audius error:', err);
+      setSearchResults([]);
+    }
+    setSearchLoading(false);
+  }, [playAudiusTrack]);
 
   const togglePlay = useCallback(() => {
     const audio = audioElRef.current;
@@ -177,7 +248,6 @@ function App() {
     handleScrubStart(e.touches[0].clientX);
   }, [handleScrubStart]);
 
-  // Global move/up listeners while scrubbing
   useEffect(() => {
     if (!scrubbing) return;
 
@@ -269,6 +339,41 @@ function App() {
               <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </label>
           </div>
+          <form className="search-row" onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}>
+            <input
+              className="search-input"
+              type="text"
+              placeholder="Search Audius or paste link"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button className="search-go" type="submit" disabled={searchLoading}>
+                {searchLoading ? '...' : 'Go'}
+              </button>
+            )}
+          </form>
+          {searchResults && (
+            <div className="search-results">
+              {searchResults.length === 0 && <div className="search-empty">No results found</div>}
+              {searchResults.map((track) => (
+                <button
+                  key={track.id}
+                  className="search-result"
+                  onClick={() => playAudiusTrack(track)}
+                >
+                  {track.artwork?.['150x150'] && (
+                    <img className="result-art" src={track.artwork['150x150']} alt="" />
+                  )}
+                  <div className="result-info">
+                    <span className="result-title">{track.title}</span>
+                    <span className="result-artist">{track.user.name}</span>
+                  </div>
+                  <span className="result-duration">{formatTime(track.duration)}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
