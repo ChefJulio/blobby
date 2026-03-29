@@ -13,7 +13,11 @@ A cute audio-reactive blob visualizer. Drop a song on him and watch him dance.
 - Auto-normalization adapts to any track's loudness
 - Drop detection triggers a :D grin on energy spikes
 - Bass at bottom, highs at top
-- Microphone input or audio file drag-and-drop
+- Microphone input, audio/video file drag-and-drop, or Audius streaming
+- Search and stream tracks from Audius with trending discovery
+- Video file support with toggleable picture-in-picture
+- Fullscreen mode with auto-hiding cursor
+- Drifting star field background
 
 ## Getting Started
 
@@ -22,7 +26,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173, drop an audio file or click "Use Microphone".
+Open http://localhost:5173, drop an audio/video file, click "Use Microphone", or search for a track on Audius.
 
 ## How It Works
 
