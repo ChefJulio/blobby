@@ -27,6 +27,8 @@ function App() {
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [trending, setTrending] = useState(null);
+  const [searchFocused, setSearchFocused] = useState(false);
   const audioCtxRef = useRef(null);
   const audioElRef = useRef(null);
   const micStreamRef = useRef(null);
@@ -198,6 +200,18 @@ function App() {
     setSearchLoading(false);
   }, [playAudiusTrack]);
 
+  const fetchTrending = useCallback(async () => {
+    if (trending) return; // already fetched
+    try {
+      const res = await fetch(`${AUDIUS_API}/tracks/trending?limit=8&app_name=${AUDIUS_APP}`);
+      if (!res.ok) return;
+      const json = await res.json();
+      setTrending(json.data || []);
+    } catch (err) {
+      console.error('Audius trending error:', err);
+    }
+  }, [trending]);
+
   const togglePlay = useCallback(() => {
     const audio = audioElRef.current;
     if (!audio) return;
@@ -307,6 +321,9 @@ function App() {
   const displayProgress = scrubbing ? scrubPos : progress;
   const seekPercent = duration ? `${(displayProgress / duration) * 100}%` : '0%';
 
+  const showTrending = searchFocused && !searchQuery && !searchResults;
+  const displayTracks = searchResults || (showTrending ? trending : null);
+
   const searchUI = (
     <>
       <form className="search-row" onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}>
@@ -316,6 +333,8 @@ function App() {
           placeholder="Search Audius or paste link"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={() => { setSearchFocused(true); fetchTrending(); }}
+          onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
           autoFocus={showSearch}
         />
         {searchQuery && (
@@ -324,10 +343,11 @@ function App() {
           </button>
         )}
       </form>
-      {searchResults && (
+      {displayTracks && (
         <div className="search-results">
-          {searchResults.length === 0 && <div className="search-empty">No results found</div>}
-          {searchResults.map((track) => (
+          {showTrending && <div className="search-label">Trending on Audius</div>}
+          {displayTracks.length === 0 && <div className="search-empty">No results found</div>}
+          {displayTracks.map((track) => (
             <button
               key={track.id}
               className="search-result"
