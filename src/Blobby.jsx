@@ -60,18 +60,20 @@ function drawStars(ctx, W, H, stars, blobRadius) {
     const s = stars[i];
     s.z += s.speed;
     if (s.z > 1) {
-      s.z = 0.001;
+      s.z = Math.random() * 0.3;
       s.x = (Math.random() - 0.5) * 2;
       s.y = (Math.random() - 0.5) * 2;
+      s.speed = Math.random() * 0.0015 + 0.0005;
     }
     // Project 3D -> 2D (perspective)
     const scale = s.z * s.z;
     const sx = cx + s.x / (1.01 - s.z) * cx * 0.8;
     const sy = cy + s.y / (1.01 - s.z) * cy * 0.8;
     if (sx < -10 || sx > W + 10 || sy < -10 || sy > H + 10) {
-      s.z = 0.001;
+      s.z = Math.random() * 0.3;
       s.x = (Math.random() - 0.5) * 2;
       s.y = (Math.random() - 0.5) * 2;
+      s.speed = Math.random() * 0.0015 + 0.0005;
       continue;
     }
     // Skip stars inside Blobby's area
