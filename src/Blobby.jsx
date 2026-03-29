@@ -46,7 +46,7 @@ function createStars() {
       x: (Math.random() - 0.5) * 2,
       y: (Math.random() - 0.5) * 2,
       z: Math.random(),
-      speed: Math.random() * 0.0015 + 0.0005,
+      speed: Math.random() * 0.0008 + 0.0004,
     });
   }
   return stars;
