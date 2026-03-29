@@ -118,7 +118,6 @@ function App() {
     setupAnalysers(ctx, source, false);
     audio.play();
     setIsPlaying(true);
-    setMode('file');
     startProgressLoop();
   }, [setupAnalysers, cleanup, startProgressLoop]);
 
@@ -163,6 +162,7 @@ function App() {
     const streamUrl = `${AUDIUS_API}/tracks/${track.id}/stream?app_name=${AUDIUS_APP}`;
     const label = `${track.user.name} - ${track.title}`;
     playAudioUrl(streamUrl, label);
+    setMode('audius');
     setSearchResults(null);
     setSearchQuery('');
     setShowSearch(false);
@@ -394,7 +394,7 @@ function App() {
             </div>
           )}
 
-          {mode === 'file' && (
+          {(mode === 'file' || mode === 'audius') && (
             <div
               className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
               ref={seekBarRef}
@@ -414,13 +414,13 @@ function App() {
               <button className={`tab ${mode === 'mic' ? 'active' : ''}`} onClick={startMic}>
                 Mic
               </button>
-              <button className={`tab ${showSearch ? 'active' : ''}`} onClick={() => setShowSearch(v => !v)}>
+              <button className={`tab ${showSearch || mode === 'audius' ? 'active' : ''}`} onClick={() => setShowSearch(v => !v)}>
                 Audius
               </button>
               <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </div>
 
-            {mode === 'file' && (
+            {(mode === 'file' || mode === 'audius') && (
               <>
                 <button className="play-btn" onClick={togglePlay}>
                   {isPlaying ? '||' : '\u25B6'}
@@ -444,7 +444,7 @@ function App() {
             {mode === 'mic' && <span className="mic-label">Listening...</span>}
 
             <label className="file-button small">
-              {mode === 'file' ? 'Change' : 'Load File'}
+              {mode === 'mic' ? 'Load File' : 'Change'}
               <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </label>
           </div>
