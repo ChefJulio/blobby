@@ -36,12 +36,43 @@ function averageBins(freqData, binMap) {
 const NUM_BARS = 64;
 const CIRC_LAYERS = 5;
 const BG_COLOR = '#08060f';
+const NUM_STARS = 120;
+
+function createStars() {
+  const stars = [];
+  for (let i = 0; i < NUM_STARS; i++) {
+    stars.push({
+      x: Math.random(),
+      y: Math.random(),
+      size: Math.random() * 1.5 + 0.5,
+      opacity: Math.random() * 0.5 + 0.1,
+      speed: Math.random() * 0.008 + 0.002,
+      twinkleSpeed: Math.random() * 2 + 1,
+      twinkleOffset: Math.random() * Math.PI * 2,
+    });
+  }
+  return stars;
+}
+
+function drawStars(ctx, W, H, stars, time) {
+  for (let i = 0; i < stars.length; i++) {
+    const s = stars[i];
+    s.y -= s.speed;
+    if (s.y < -0.01) { s.y = 1.01; s.x = Math.random(); }
+    const twinkle = 0.5 + 0.5 * Math.sin(time * s.twinkleSpeed + s.twinkleOffset);
+    const alpha = s.opacity * (0.5 + twinkle * 0.5);
+    ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+    ctx.fillRect(s.x * W, s.y * H, s.size, s.size);
+  }
+}
 
 // --- Blobby Component ---
 
 export default function Blobby({ audioSource }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const starsRef = useRef(null);
+  if (!starsRef.current) starsRef.current = createStars();
 
   // Draw idle blob when no audio source
   useEffect(() => {
@@ -49,20 +80,27 @@ export default function Blobby({ audioSource }) {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+    const stars = starsRef.current;
+    let raf;
 
     function drawIdle() {
+      raf = requestAnimationFrame(drawIdle);
       const rect = container.getBoundingClientRect();
       const W = rect.width;
       const H = rect.height;
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(W * dpr);
-      canvas.height = Math.round(H * dpr);
-      canvas.style.width = W + 'px';
-      canvas.style.height = H + 'px';
+      if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
+        canvas.width = Math.round(W * dpr);
+        canvas.height = Math.round(H * dpr);
+        canvas.style.width = W + 'px';
+        canvas.style.height = H + 'px';
+      }
       const ctx = canvas.getContext('2d');
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, W, H);
+
+      drawStars(ctx, W, H, stars, Date.now() * 0.001);
 
       const cx = W / 2;
       const cy = H / 2;
@@ -100,9 +138,8 @@ export default function Blobby({ audioSource }) {
       ctx.stroke();
     }
 
-    drawIdle();
-    window.addEventListener('resize', drawIdle);
-    return () => window.removeEventListener('resize', drawIdle);
+    raf = requestAnimationFrame(drawIdle);
+    return () => cancelAnimationFrame(raf);
   }, [audioSource]);
 
   useEffect(() => {
@@ -166,6 +203,8 @@ export default function Blobby({ audioSource }) {
       // Clear
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, W, H);
+
+      drawStars(ctx, W, H, starsRef.current, Date.now() * 0.001);
 
       // --- Blobby drawing ---
       const cx = W / 2;
