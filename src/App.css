@@ -246,13 +246,18 @@ body {
   flex-shrink: 0;
 }
 
-/* Search panel (above bottom bar) */
-.search-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 0;
+/* Search popover (bottom-left, above tabs) */
+.search-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 11;
+}
+
+.search-popover {
+  position: absolute;
+  bottom: 60px;
+  left: 16px;
+  z-index: 12;
 }
 
 button, .file-button {

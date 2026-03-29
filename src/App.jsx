@@ -438,14 +438,17 @@ function App() {
         </div>
       )}
 
+      {!isFullscreen && mode && showSearch && (
+        <>
+          <div className="search-backdrop" onClick={() => setShowSearch(false)} />
+          <div className="search-popover">
+            {searchUI}
+          </div>
+        </>
+      )}
+
       {!isFullscreen && mode && (
         <div className="bottom-bar">
-          {showSearch && (
-            <div className="search-panel">
-              {searchUI}
-            </div>
-          )}
-
           {(mode === 'file' || mode === 'audius') && (
             <div
               className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
