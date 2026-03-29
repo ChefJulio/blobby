@@ -46,15 +46,16 @@ function createStars() {
       x: (Math.random() - 0.5) * 2,
       y: (Math.random() - 0.5) * 2,
       z: Math.random(),
-      speed: Math.random() * 0.004 + 0.002,
+      speed: Math.random() * 0.0015 + 0.0005,
     });
   }
   return stars;
 }
 
-function drawStars(ctx, W, H, stars) {
+function drawStars(ctx, W, H, stars, blobRadius) {
   const cx = W / 2;
   const cy = H / 2;
+  const rSq = blobRadius * blobRadius;
   for (let i = 0; i < stars.length; i++) {
     const s = stars[i];
     s.z += s.speed;
@@ -73,6 +74,9 @@ function drawStars(ctx, W, H, stars) {
       s.y = (Math.random() - 0.5) * 2;
       continue;
     }
+    // Skip stars inside Blobby's area
+    const dx = sx - cx, dy = sy - cy;
+    if (dx * dx + dy * dy < rSq) continue;
     const size = scale * 2.5 + 0.3;
     const alpha = scale * 0.7 + 0.05;
     ctx.fillStyle = `rgba(255,255,255,${alpha})`;
@@ -116,12 +120,12 @@ export default function Blobby({ audioSource }) {
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, W, H);
 
-      drawStars(ctx, W, H, stars);
-
       const cx = W / 2;
       const cy = H / 2;
       const maxRadius = Math.min(W / 2, H / 2) - 4;
       const radius = maxRadius * 0.38;
+
+      drawStars(ctx, W, H, stars, radius);
 
       // Circle outline
       ctx.strokeStyle = 'rgba(255,255,255,0.2)';
@@ -220,12 +224,12 @@ export default function Blobby({ audioSource }) {
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, W, H);
 
-      drawStars(ctx, W, H, starsRef.current);
-
       // --- Blobby drawing ---
       const cx = W / 2;
       const cy = H / 2;
       const maxRadius = Math.min(W / 2, H / 2) - 4;
+
+      drawStars(ctx, W, H, starsRef.current, maxRadius);
       const innerRadius = maxRadius * 0.38;
       const barMaxLen = maxRadius - innerRadius;
       const angleStep = (Math.PI * 2) / NUM_BARS;
