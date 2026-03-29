@@ -495,10 +495,6 @@ function App() {
 
             {mode === 'mic' && <span className="mic-label">Listening...</span>}
 
-            <label className="file-button small">
-              {mode === 'mic' ? 'Load File' : 'Change'}
-              <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
-            </label>
             <button className="tab" onClick={toggleFullscreen} title="Toggle fullscreen">
               [ ]
             </button>
