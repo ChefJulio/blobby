@@ -325,7 +325,7 @@ function App() {
   const displayTracks = searchResults || (showTrending ? trending : null);
 
   const searchUI = (
-    <>
+    <div className="search-wrapper">
       <form className="search-row" onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}>
         <input
           className="search-input"
@@ -365,7 +365,7 @@ function App() {
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 
   return (
