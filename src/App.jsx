@@ -26,6 +26,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const audioCtxRef = useRef(null);
   const audioElRef = useRef(null);
   const micStreamRef = useRef(null);
@@ -164,6 +165,7 @@ function App() {
     playAudioUrl(streamUrl, label);
     setSearchResults(null);
     setSearchQuery('');
+    setShowSearch(false);
   }, [playAudioUrl]);
 
   const handleSearch = useCallback(async (query) => {
@@ -305,6 +307,47 @@ function App() {
   const displayProgress = scrubbing ? scrubPos : progress;
   const seekPercent = duration ? `${(displayProgress / duration) * 100}%` : '0%';
 
+  const searchUI = (
+    <>
+      <form className="search-row" onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}>
+        <input
+          className="search-input"
+          type="text"
+          placeholder="Search Audius or paste link"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          autoFocus={showSearch}
+        />
+        {searchQuery && (
+          <button className="search-go" type="submit" disabled={searchLoading}>
+            {searchLoading ? '...' : 'Go'}
+          </button>
+        )}
+      </form>
+      {searchResults && (
+        <div className="search-results">
+          {searchResults.length === 0 && <div className="search-empty">No results found</div>}
+          {searchResults.map((track) => (
+            <button
+              key={track.id}
+              className="search-result"
+              onClick={() => playAudiusTrack(track)}
+            >
+              {track.artwork?.['150x150'] && (
+                <img className="result-art" src={track.artwork['150x150']} alt="" />
+              )}
+              <div className="result-info">
+                <span className="result-title">{track.title}</span>
+                <span className="result-artist">{track.user.name}</span>
+              </div>
+              <span className="result-duration">{formatTime(track.duration)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div
       className="app"
@@ -339,46 +382,18 @@ function App() {
               <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </label>
           </div>
-          <form className="search-row" onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}>
-            <input
-              className="search-input"
-              type="text"
-              placeholder="Search Audius or paste link"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button className="search-go" type="submit" disabled={searchLoading}>
-                {searchLoading ? '...' : 'Go'}
-              </button>
-            )}
-          </form>
-          {searchResults && (
-            <div className="search-results">
-              {searchResults.length === 0 && <div className="search-empty">No results found</div>}
-              {searchResults.map((track) => (
-                <button
-                  key={track.id}
-                  className="search-result"
-                  onClick={() => playAudiusTrack(track)}
-                >
-                  {track.artwork?.['150x150'] && (
-                    <img className="result-art" src={track.artwork['150x150']} alt="" />
-                  )}
-                  <div className="result-info">
-                    <span className="result-title">{track.title}</span>
-                    <span className="result-artist">{track.user.name}</span>
-                  </div>
-                  <span className="result-duration">{formatTime(track.duration)}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {searchUI}
         </div>
       )}
 
       {mode && (
         <div className="bottom-bar">
+          {showSearch && (
+            <div className="search-panel">
+              {searchUI}
+            </div>
+          )}
+
           {mode === 'file' && (
             <div
               className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
@@ -398,6 +413,9 @@ function App() {
               </button>
               <button className={`tab ${mode === 'mic' ? 'active' : ''}`} onClick={startMic}>
                 Mic
+              </button>
+              <button className={`tab ${showSearch ? 'active' : ''}`} onClick={() => setShowSearch(v => !v)}>
+                Audius
               </button>
               <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </div>
