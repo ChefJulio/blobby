@@ -26,6 +26,10 @@ body {
   cursor: pointer;
 }
 
+.blobby-container.cursor-hidden {
+  cursor: none;
+}
+
 /* Video picture-in-picture */
 .video-pip {
   position: absolute;

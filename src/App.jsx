@@ -28,6 +28,8 @@ function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [cursorHidden, setCursorHidden] = useState(false);
+  const cursorTimerRef = useRef(null);
   const [trending, setTrending] = useState(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const audioCtxRef = useRef(null);
@@ -320,10 +322,22 @@ function App() {
   };
 
   useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const onChange = () => {
+      const fs = !!document.fullscreenElement;
+      setIsFullscreen(fs);
+      if (!fs) { setCursorHidden(false); clearTimeout(cursorTimerRef.current); }
+    };
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
+
+  const resetCursorTimer = useCallback(() => {
+    setCursorHidden(false);
+    clearTimeout(cursorTimerRef.current);
+    if (isFullscreen) {
+      cursorTimerRef.current = setTimeout(() => setCursorHidden(true), 1000);
+    }
+  }, [isFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
@@ -391,8 +405,9 @@ function App() {
       onDrop={handleDrop}
     >
       <div
-        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}`}
+        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}${cursorHidden ? ' cursor-hidden' : ''}`}
         onClick={isFullscreen ? () => document.exitFullscreen() : undefined}
+        onMouseMove={isFullscreen ? resetCursorTimer : undefined}
       >
         <Blobby audioSource={audioSource} />
       </div>
