@@ -318,6 +318,14 @@ function App() {
     return `${m}:${String(sec).padStart(2, '0')}`;
   };
 
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen();
+    }
+  }, []);
+
   const displayProgress = scrubbing ? scrubPos : progress;
   const seekPercent = duration ? `${(displayProgress / duration) * 100}%` : '0%';
 
@@ -467,6 +475,9 @@ function App() {
               {mode === 'mic' ? 'Load File' : 'Change'}
               <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </label>
+            <button className="tab" onClick={toggleFullscreen} title="Toggle fullscreen">
+              [ ]
+            </button>
           </div>
         </div>
       )}
