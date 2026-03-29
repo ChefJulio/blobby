@@ -52,10 +52,11 @@ function createStars() {
   return stars;
 }
 
-function drawStars(ctx, W, H, stars, blobRadius) {
+function drawStars(ctx, W, H, stars, blobRadii, startAngle, angleStep) {
   const cx = W / 2;
   const cy = H / 2;
-  const rSq = blobRadius * blobRadius;
+  const numBins = blobRadii.length;
+  const pad = 6;
   for (let i = 0; i < stars.length; i++) {
     const s = stars[i];
     s.z += s.speed;
@@ -63,9 +64,8 @@ function drawStars(ctx, W, H, stars, blobRadius) {
       s.z = Math.random() * 0.3;
       s.x = (Math.random() - 0.5) * 2;
       s.y = (Math.random() - 0.5) * 2;
-      s.speed = Math.random() * 0.0015 + 0.0005;
+      s.speed = Math.random() * 0.0008 + 0.0004;
     }
-    // Project 3D -> 2D (perspective)
     const scale = s.z * s.z;
     const sx = cx + s.x / (1.01 - s.z) * cx * 0.8;
     const sy = cy + s.y / (1.01 - s.z) * cy * 0.8;
@@ -73,12 +73,15 @@ function drawStars(ctx, W, H, stars, blobRadius) {
       s.z = Math.random() * 0.3;
       s.x = (Math.random() - 0.5) * 2;
       s.y = (Math.random() - 0.5) * 2;
-      s.speed = Math.random() * 0.0015 + 0.0005;
+      s.speed = Math.random() * 0.0008 + 0.0004;
       continue;
     }
-    // Skip stars inside Blobby's area
+    // Skip stars inside Blobby's shape at this angle
     const dx = sx - cx, dy = sy - cy;
-    if (dx * dx + dy * dy < rSq) continue;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const angle = Math.atan2(dy, dx);
+    const bin = Math.floor(((angle - startAngle + Math.PI * 4) % (Math.PI * 2)) / angleStep) % numBins;
+    if (dist < blobRadii[bin] + pad) continue;
     const size = scale * 2.5 + 0.3;
     const alpha = scale * 0.7 + 0.05;
     ctx.fillStyle = `rgba(255,255,255,${alpha})`;
@@ -127,7 +130,8 @@ export default function Blobby({ audioSource }) {
       const maxRadius = Math.min(W / 2, H / 2) - 4;
       const radius = maxRadius * 0.38;
 
-      drawStars(ctx, W, H, stars, radius);
+      const idleRadii = new Float32Array(NUM_BARS).fill(radius);
+      drawStars(ctx, W, H, stars, idleRadii, Math.PI / 2, (Math.PI * 2) / NUM_BARS);
 
       // Circle outline
       ctx.strokeStyle = 'rgba(255,255,255,0.2)';
@@ -231,7 +235,6 @@ export default function Blobby({ audioSource }) {
       const cy = H / 2;
       const maxRadius = Math.min(W / 2, H / 2) - 4;
 
-      drawStars(ctx, W, H, starsRef.current, maxRadius);
       const innerRadius = maxRadius * 0.38;
       const barMaxLen = maxRadius - innerRadius;
       const angleStep = (Math.PI * 2) / NUM_BARS;
@@ -302,6 +305,17 @@ export default function Blobby({ audioSource }) {
           circTrails[l][i] = Math.max(circTrails[l][i] * decays[l], current[i]);
         }
       }
+
+      // Draw stars behind blob, culled against actual trail shape
+      const starRadii = new Float32Array(NUM_BARS);
+      for (let i = 0; i < NUM_BARS; i++) {
+        let maxAmp = current[i];
+        for (let l = 0; l < CIRC_LAYERS; l++) {
+          if (circTrails[l][i] > maxAmp) maxAmp = circTrails[l][i];
+        }
+        starRadii[i] = innerRadius + maxAmp * barMaxLen;
+      }
+      drawStars(ctx, W, H, starsRef.current, starRadii, startAngle, angleStep);
 
       // ROYGBV trail colors
       const layerColors = [
