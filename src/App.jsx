@@ -38,10 +38,10 @@ function App() {
     setShowVideo(false);
   }, []);
 
-  const setupAnalysers = useCallback((ctx, source, isMono) => {
+  const setupAnalysers = useCallback((ctx, source, isMono, monitor = true) => {
     const splitter = ctx.createChannelSplitter(2);
     source.connect(splitter);
-    source.connect(ctx.destination);
+    if (monitor) source.connect(ctx.destination);
 
     const analyserMixed = ctx.createAnalyser();
     analyserMixed.fftSize = 2048;
@@ -69,7 +69,7 @@ function App() {
       const ctx = new AudioContext();
       audioCtxRef.current = ctx;
       const source = ctx.createMediaStreamSource(stream);
-      setupAnalysers(ctx, source, false);
+      setupAnalysers(ctx, source, false, false);
       setMode('mic');
     } catch (err) {
       console.error('Mic access denied:', err);
