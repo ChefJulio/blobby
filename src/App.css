@@ -137,9 +137,11 @@ body {
   width: 340px;
   max-height: 280px;
   overflow-y: auto;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(8, 6, 15, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
+  z-index: 30;
+  position: relative;
 }
 
 .search-results::-webkit-scrollbar {
