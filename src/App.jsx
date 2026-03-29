@@ -27,6 +27,7 @@ function App() {
   const [searchResults, setSearchResults] = useState(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [trending, setTrending] = useState(null);
   const [searchFocused, setSearchFocused] = useState(false);
   const audioCtxRef = useRef(null);
@@ -318,6 +319,12 @@ function App() {
     return `${m}:${String(sec).padStart(2, '0')}`;
   };
 
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
       document.exitFullscreen();
@@ -383,23 +390,25 @@ function App() {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="blobby-container">
+      <div
+        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}`}
+        onClick={isFullscreen ? () => document.exitFullscreen() : undefined}
+      >
         <Blobby audioSource={audioSource} />
       </div>
 
-      {/* Video picture-in-picture */}
-      <div
+      {!isFullscreen && <div
         className={`video-pip${showVideo && hasVideo ? ' visible' : ''}`}
         ref={videoContainerRef}
-      />
+      />}
 
-      {dragOver && (
+      {!isFullscreen && dragOver && (
         <div className="drag-overlay">
           <div className="drag-label">Drop audio file</div>
         </div>
       )}
 
-      {!mode && (
+      {!isFullscreen && !mode && (
         <div className="controls-overlay">
           <h1>Blobby</h1>
           <p>Drop an audio file or use your mic</p>
@@ -414,7 +423,7 @@ function App() {
         </div>
       )}
 
-      {mode && (
+      {!isFullscreen && mode && (
         <div className="bottom-bar">
           {showSearch && (
             <div className="search-panel">

@@ -21,6 +21,11 @@ body {
   bottom: 70px;
 }
 
+.blobby-container.fullscreen {
+  bottom: 0;
+  cursor: pointer;
+}
+
 /* Video picture-in-picture */
 .video-pip {
   position: absolute;
