@@ -42,27 +42,43 @@ function createStars() {
   const stars = [];
   for (let i = 0; i < NUM_STARS; i++) {
     stars.push({
-      x: Math.random(),
-      y: Math.random(),
-      size: Math.random() * 1.5 + 0.5,
-      opacity: Math.random() * 0.5 + 0.1,
-      speed: Math.random() * 0.008 + 0.002,
-      twinkleSpeed: Math.random() * 2 + 1,
-      twinkleOffset: Math.random() * Math.PI * 2,
+      // Position in 3D: x,y are -1 to 1 from center, z is depth (0=far, 1=near)
+      x: (Math.random() - 0.5) * 2,
+      y: (Math.random() - 0.5) * 2,
+      z: Math.random(),
+      speed: Math.random() * 0.004 + 0.002,
     });
   }
   return stars;
 }
 
-function drawStars(ctx, W, H, stars, time) {
+function drawStars(ctx, W, H, stars) {
+  const cx = W / 2;
+  const cy = H / 2;
   for (let i = 0; i < stars.length; i++) {
     const s = stars[i];
-    s.y -= s.speed;
-    if (s.y < -0.01) { s.y = 1.01; s.x = Math.random(); }
-    const twinkle = 0.5 + 0.5 * Math.sin(time * s.twinkleSpeed + s.twinkleOffset);
-    const alpha = s.opacity * (0.5 + twinkle * 0.5);
+    s.z += s.speed;
+    if (s.z > 1) {
+      s.z = 0.001;
+      s.x = (Math.random() - 0.5) * 2;
+      s.y = (Math.random() - 0.5) * 2;
+    }
+    // Project 3D -> 2D (perspective)
+    const scale = s.z * s.z;
+    const sx = cx + s.x / (1.01 - s.z) * cx * 0.8;
+    const sy = cy + s.y / (1.01 - s.z) * cy * 0.8;
+    if (sx < -10 || sx > W + 10 || sy < -10 || sy > H + 10) {
+      s.z = 0.001;
+      s.x = (Math.random() - 0.5) * 2;
+      s.y = (Math.random() - 0.5) * 2;
+      continue;
+    }
+    const size = scale * 2.5 + 0.3;
+    const alpha = scale * 0.7 + 0.05;
     ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-    ctx.fillRect(s.x * W, s.y * H, s.size, s.size);
+    ctx.beginPath();
+    ctx.arc(sx, sy, size, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -100,7 +116,7 @@ export default function Blobby({ audioSource }) {
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, W, H);
 
-      drawStars(ctx, W, H, stars, Date.now() * 0.001);
+      drawStars(ctx, W, H, stars);
 
       const cx = W / 2;
       const cy = H / 2;
@@ -204,7 +220,7 @@ export default function Blobby({ audioSource }) {
       ctx.fillStyle = BG_COLOR;
       ctx.fillRect(0, 0, W, H);
 
-      drawStars(ctx, W, H, starsRef.current, Date.now() * 0.001);
+      drawStars(ctx, W, H, starsRef.current);
 
       // --- Blobby drawing ---
       const cx = W / 2;
