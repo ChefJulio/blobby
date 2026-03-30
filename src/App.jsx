@@ -498,14 +498,14 @@ function App() {
 
             {mode === 'mic' && <span className="mic-label">Listening...</span>}
 
-            <button className="fullscreen-btn" onClick={toggleFullscreen} title="Toggle fullscreen">
+            {document.fullscreenEnabled && <button className="fullscreen-btn" onClick={toggleFullscreen} title="Toggle fullscreen">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <polyline points="1,5 1,1 5,1" />
                 <polyline points="9,1 13,1 13,5" />
                 <polyline points="13,9 13,13 9,13" />
                 <polyline points="5,13 1,13 1,9" />
               </svg>
-            </button>
+            </button>}
           </div>
         </div>
       )}
