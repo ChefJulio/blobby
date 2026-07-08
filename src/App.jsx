@@ -119,23 +119,32 @@ function App() {
     setAudioSource({ analyserL, analyserR, analyserMixed, isMono });
   }, []);
 
+  const startMicStream = useCallback(async () => {
+    // Voice-call processing (echo cancellation, noise suppression, AGC)
+    // strips exactly the music we want to visualize - especially when the
+    // sound comes from this device's own speakers
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    micStreamRef.current = stream;
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    const source = ctx.createMediaStreamSource(stream);
+    // Treat mic as mono: phone mics often deliver imbalanced or single-channel
+    // stereo, which made the blob lopsided. The mono path renders the mixed
+    // signal symmetrically on both halves.
+    setupAnalysers(ctx, source, true, false);
+  }, [setupAnalysers]);
+
   const startMic = useCallback(async () => {
     cleanup();
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
-      const ctx = new AudioContext();
-      audioCtxRef.current = ctx;
-      const source = ctx.createMediaStreamSource(stream);
-      // Treat mic as mono: phone mics often deliver imbalanced or single-channel
-      // stereo, which made the blob lopsided. The mono path renders the mixed
-      // signal symmetrically on both halves.
-      setupAnalysers(ctx, source, true, false);
+      await startMicStream();
       setMode('mic');
     } catch (err) {
       console.error('Mic access denied:', err);
     }
-  }, [setupAnalysers, cleanup]);
+  }, [startMicStream, cleanup]);
 
   const startProgressLoop = useCallback(() => {
     function tick() {
@@ -184,15 +193,35 @@ function App() {
     startProgressLoop();
   }, [setupAnalysers, cleanup, startProgressLoop]);
 
-  // --- YouTube tab capture ---
-  const stopTabCapture = useCallback(() => {
-    if (!captureStreamRef.current) return;
-    captureStreamRef.current.getTracks().forEach(t => t.stop());
-    captureStreamRef.current = null;
+  // --- YouTube audio (tab capture, or mic fallback where capture is unsupported) ---
+  const stopYtAudio = useCallback(() => {
+    let hadStream = false;
+    if (captureStreamRef.current) {
+      captureStreamRef.current.getTracks().forEach(t => t.stop());
+      captureStreamRef.current = null;
+      hadStream = true;
+    }
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(t => t.stop());
+      micStreamRef.current = null;
+      hadStream = true;
+    }
+    if (!hadStream) return;
     if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
     setAudioSource(null);
     setCapturing(false);
   }, []);
+
+  const startMicListen = useCallback(async () => {
+    setCaptureError('');
+    try {
+      await startMicStream();
+      setCapturing(true);
+    } catch (err) {
+      console.error('Mic access denied:', err);
+      setCaptureError('Blobby needs microphone access - allow it and try again');
+    }
+  }, [startMicStream]);
 
   const startTabCapture = useCallback(async (pickAnyTab = false) => {
     setCaptureError('');
@@ -220,12 +249,12 @@ function App() {
       setupAnalysers(ctx, source, false, false);
       setCapturing(true);
       // Fires when the user clicks the browser's "Stop sharing" bar
-      audioTracks[0].addEventListener('ended', stopTabCapture);
+      audioTracks[0].addEventListener('ended', stopYtAudio);
     } catch (err) {
       // User dismissed the picker - not an error worth surfacing
       console.warn('Tab capture cancelled:', err);
     }
-  }, [setupAnalysers, stopTabCapture]);
+  }, [setupAnalysers, stopYtAudio]);
 
   const playYouTube = useCallback((target) => {
     // Keep an active capture alive across video/playlist switches - it
@@ -527,15 +556,13 @@ function App() {
           <h1>Blobby</h1>
           <p>Blobby dances to whatever you play. Where&apos;s your music?</p>
           <div className="source-cards">
-            {SUPPORTS_TAB_CAPTURE && (
-              <button
-                className={`source-card${showYtLanding ? ' selected' : ''}`}
-                onClick={() => setShowYtLanding(v => !v)}
-              >
-                <span className="card-title">YouTube</span>
-                <span className="card-desc">Paste a video link</span>
-              </button>
-            )}
+            <button
+              className={`source-card${showYtLanding ? ' selected' : ''}`}
+              onClick={() => setShowYtLanding(v => !v)}
+            >
+              <span className="card-title">YouTube</span>
+              <span className="card-desc">Paste a video link</span>
+            </button>
             <button className="source-card" onClick={startMic}>
               <span className="card-title">Microphone</span>
               <span className="card-desc">Blobby hears the room</span>
@@ -554,19 +581,32 @@ function App() {
       {!isFullscreen && mode === 'youtube' && (ytVideoId || ytListId) && !capturing && !showYtPopover && (
         <div className="capture-guide">
           {ytError ? (
-            <>
-              <div>
-                <strong>This video won&apos;t play here.</strong> Open it on YouTube in
-                another tab, press play there, then come back and:
-              </div>
-              <button className="capture-btn big" onClick={() => startTabCapture(true)}>
-                Capture That Tab
-              </button>
-              <div className="guide-steps">
-                In the popup: pick the YouTube tab, then switch on <em>Also share tab audio</em>.
-              </div>
-            </>
-          ) : (
+            SUPPORTS_TAB_CAPTURE ? (
+              <>
+                <div>
+                  <strong>This video won&apos;t play here.</strong> Open it on YouTube in
+                  another tab, press play there, then come back and:
+                </div>
+                <button className="capture-btn big" onClick={() => startTabCapture(true)}>
+                  Capture That Tab
+                </button>
+                <div className="guide-steps">
+                  In the popup: pick the YouTube tab, then switch on <em>Also share tab audio</em>.
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <strong>This video won&apos;t play here.</strong> Play it in the YouTube
+                  app out loud, then:
+                </div>
+                <button className="capture-btn big" onClick={startMicListen}>
+                  Let Blobby Listen
+                </button>
+                <div className="guide-steps">Blobby listens through your microphone.</div>
+              </>
+            )
+          ) : SUPPORTS_TAB_CAPTURE ? (
             <>
               <div><strong>One more step!</strong> Blobby needs your OK to hear this tab.</div>
               <button className="capture-btn big" onClick={() => startTabCapture(false)}>
@@ -578,6 +618,16 @@ function App() {
               <button className="guide-alt" onClick={() => startTabCapture(true)}>
                 Music playing in a different tab? Capture that instead
               </button>
+            </>
+          ) : (
+            <>
+              <div><strong>One more step!</strong> Turn your volume up.</div>
+              <button className="capture-btn big" onClick={startMicListen}>
+                Let Blobby Listen
+              </button>
+              <div className="guide-steps">
+                Blobby listens through your microphone - allow access when asked.
+              </div>
             </>
           )}
         </div>
@@ -614,14 +664,12 @@ function App() {
               <button className={`tab ${mode === 'mic' ? 'active' : ''}`} onClick={startMic}>
                 Mic
               </button>
-              {SUPPORTS_TAB_CAPTURE && (
-                <button
-                  className={`tab ${showYtPopover || mode === 'youtube' ? 'active' : ''}`}
-                  onClick={() => setShowYtPopover(v => !v)}
-                >
-                  YouTube
-                </button>
-              )}
+              <button
+                className={`tab ${showYtPopover || mode === 'youtube' ? 'active' : ''}`}
+                onClick={() => setShowYtPopover(v => !v)}
+              >
+                YouTube
+              </button>
               <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </div>
 
@@ -657,14 +705,19 @@ function App() {
                 </button>
                 {capturing ? (
                   <>
-                    <span className="capture-live"><span className="live-dot" />Capturing</span>
-                    <button className="tab" onClick={stopTabCapture}>Stop</button>
+                    <span className="capture-live">
+                      <span className="live-dot" />
+                      {SUPPORTS_TAB_CAPTURE ? 'Capturing' : 'Listening'}
+                    </span>
+                    <button className="tab" onClick={stopYtAudio}>Stop</button>
                   </>
                 ) : (
                   <button
                     className="capture-btn"
-                    onClick={() => startTabCapture(false)}
-                    title={'A popup will ask to share this tab - switch on "Also share tab audio", then click Allow'}
+                    onClick={() => (SUPPORTS_TAB_CAPTURE ? startTabCapture(false) : startMicListen())}
+                    title={SUPPORTS_TAB_CAPTURE
+                      ? 'A popup will ask to share this tab - switch on "Also share tab audio", then click Allow'
+                      : 'Blobby listens through your microphone'}
                   >
                     Let Blobby Listen
                   </button>
