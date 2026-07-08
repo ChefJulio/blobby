@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Blobby is an interactive audio-reactive blob visualizer built with React 19 + Vite 8 + Canvas 2D. A cute animated blob dances in response to audio from microphone input or drag-and-drop audio files. Extracted from [Overtooled](https://github.com/ChefJulio/overtooled)'s Audio Lab visualizer.
+Blobby is an interactive audio-reactive blob visualizer built with React 19 + Vite 8 + Canvas 2D. A cute animated blob dances in response to audio from YouTube (via tab capture), microphone input, or drag-and-drop audio/video files. Extracted from [Overtooled](https://github.com/ChefJulio/overtooled)'s Audio Lab visualizer.
 
 ## Build Commands
 
@@ -22,11 +22,13 @@ No test suite exists. Validate manually: `npm run dev`, test mic input, drag-dro
 
 ### Audio Pipeline (App.jsx)
 
-Audio source (mic via `getUserMedia()` or file via `<audio>` element) feeds into Web Audio API's `AudioContext`. A `ChannelSplitter` creates three `AnalyserNode` instances (mixed, left, right) passed as `audioSource` prop to Blobby.
+Three sources: mic via `getUserMedia()` (treated as mono - phone mics deliver imbalanced stereo), local file via a `<video>` element, or YouTube via `getDisplayMedia()` tab-audio capture (desktop Chromium only; an embedded IFrame API player plays in-page and the user grants a one-time share of the tab's audio). Every source feeds Web Audio's `AudioContext`; a `ChannelSplitter` creates three `AnalyserNode` instances (mixed, left, right) passed as `audioSource` prop to Blobby.
 
 ```
-File/Mic → AudioContext → ChannelSplitter → [analyserMixed, analyserL, analyserR]
+File/Mic/TabCapture → AudioContext → ChannelSplitter → [analyserMixed, analyserL, analyserR]
 ```
+
+YouTube specifics: direct stream audio is impossible (no CORS on googlevideo URLs; Web Audio outputs silence for tainted media) - tab capture is the only web-app path. Audius streaming existed before YouTube support and was removed in July 2026 (git history has it).
 
 ### Visualization Engine (Blobby.jsx)
 

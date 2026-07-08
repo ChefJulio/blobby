@@ -19,6 +19,12 @@ body {
   left: 0;
   right: 0;
   bottom: 70px;
+  transition: bottom 0.4s ease;
+}
+
+/* Landing: raise the blob so the intro text and cards fit below it */
+.blobby-container.landing {
+  bottom: 34vh;
 }
 
 .blobby-container.fullscreen {
@@ -53,6 +59,43 @@ body {
   border-radius: 10px;
 }
 
+
+/* YouTube picture-in-picture */
+.youtube-pip {
+  position: absolute;
+  bottom: 80px;
+  right: 16px;
+  z-index: 15;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+.youtube-pip.hidden {
+  /* display:none would still work, but visibility keeps layout stable */
+  visibility: hidden;
+}
+
+.youtube-pip iframe {
+  display: block;
+  width: 320px;
+  height: 180px;
+  border: 0;
+}
+
+.yt-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(8, 6, 15, 0.94);
+}
 
 /* Drag overlay */
 .drag-overlay {
@@ -101,10 +144,159 @@ body {
   font-size: 14px;
 }
 
-.buttons {
+/* Landing source cards */
+.source-cards {
   display: flex;
   gap: 12px;
   margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 720px;
+  padding: 0 16px;
+}
+
+.source-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 20px;
+  min-width: 118px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.source-card:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.45);
+  transform: translateY(-2px);
+}
+
+.source-card.selected {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: white;
+}
+
+.card-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.drop-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.search-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+}
+
+/* Degraded-fullscreen notice (tab sharing keeps browser toolbar visible) */
+.fs-notice {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: 90vw;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 180, 255, 0.4);
+  background: rgba(20, 30, 60, 0.92);
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  pointer-events: none;
+  animation: fs-notice-fade 6s ease forwards;
+}
+
+@keyframes fs-notice-fade {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Capture guidance banner */
+.capture-guide {
+  position: absolute;
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  max-width: 440px;
+  padding: 16px 22px;
+  border-radius: 12px;
+  border: 1px solid rgba(120, 180, 255, 0.4);
+  background: rgba(20, 30, 60, 0.92);
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.capture-guide em {
+  font-style: normal;
+  font-weight: 600;
+  color: white;
+}
+
+.guide-steps {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.capture-btn.big {
+  padding: 12px 36px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+  border-color: rgba(140, 190, 255, 0.9);
+  background: rgba(60, 120, 255, 0.85);
+  animation: capture-glow 1.8s ease-in-out infinite;
+}
+
+.capture-btn.big:hover {
+  background: rgba(90, 145, 255, 1);
+  animation: none;
+}
+
+@keyframes capture-glow {
+  0%, 100% { box-shadow: 0 0 0 rgba(90, 145, 255, 0); }
+  50% { box-shadow: 0 0 20px rgba(90, 145, 255, 0.7); }
+}
+
+.guide-alt {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: rgba(150, 190, 255, 0.75);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.guide-alt:hover {
+  background: none;
+  border: none;
+  color: rgba(190, 215, 255, 1);
 }
 
 
@@ -169,81 +361,11 @@ body {
   border-radius: 2px;
 }
 
-.search-label {
-  padding: 8px 12px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.3);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
 .search-empty {
   padding: 16px;
   text-align: center;
   color: rgba(255, 255, 255, 0.3);
   font-size: 13px;
-}
-
-.search-result {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: white;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.search-result:hover {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.search-result + .search-result {
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.result-art {
-  width: 40px;
-  height: 40px;
-  border-radius: 6px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.result-info {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  gap: 2px;
-}
-
-.result-title {
-  font-size: 13px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.result-artist {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.result-duration {
-  font-size: 11px;
-  font-family: monospace;
-  color: rgba(255, 255, 255, 0.3);
-  flex-shrink: 0;
 }
 
 /* Search popover (bottom-left, above tabs) */
@@ -260,7 +382,7 @@ body {
   z-index: 12;
 }
 
-button, .file-button {
+button {
   padding: 10px 24px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -271,7 +393,7 @@ button, .file-button {
   transition: all 0.15s;
 }
 
-button:hover, .file-button:hover {
+button:hover {
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.4);
 }
@@ -402,6 +524,57 @@ button:hover, .file-button:hover {
   white-space: nowrap;
 }
 
+/* YouTube capture controls */
+.capture-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 180, 255, 0.5);
+  background: rgba(60, 120, 255, 0.15);
+  color: white;
+  cursor: pointer;
+  flex-shrink: 0;
+  animation: capture-pulse 2s ease-in-out infinite;
+}
+
+.capture-btn:hover {
+  background: rgba(60, 120, 255, 0.3);
+  animation: none;
+}
+
+@keyframes capture-pulse {
+  0%, 100% { border-color: rgba(120, 180, 255, 0.5); }
+  50% { border-color: rgba(120, 180, 255, 1); }
+}
+
+.capture-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  flex-shrink: 0;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff4444;
+  animation: live-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.capture-error {
+  font-size: 11px;
+  color: rgba(255, 140, 120, 0.9);
+  flex-shrink: 0;
+}
+
 /* Mic label */
 .mic-label {
   font-size: 12px;
@@ -443,8 +616,3 @@ button:hover, .file-button:hover {
   color: white;
 }
 
-.file-button.small {
-  padding: 6px 14px;
-  font-size: 12px;
-  flex-shrink: 0;
-}

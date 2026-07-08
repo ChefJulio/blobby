@@ -3,16 +3,38 @@ import Blobby from './Blobby';
 import './App.css';
 
 const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mov';
-const AUDIUS_API = 'https://api.audius.co/v1';
-const AUDIUS_APP = 'blobby';
 
-function isAudiusUrl(str) {
-  return /audius\.co\//.test(str);
+function parseYouTubeId(str) {
+  const m = str.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
+  return m ? m[1] : null;
 }
+
+// Tab audio capture via getDisplayMedia only works on desktop Chromium.
+// userAgentData exists only in Chromium; mobile Chromium lacks getDisplayMedia.
+const SUPPORTS_TAB_CAPTURE =
+  typeof navigator.mediaDevices?.getDisplayMedia === 'function' && !!navigator.userAgentData;
+
+// YouTube IFrame Player API loader (needed to detect embed-disabled videos)
+let ytApiPromise = null;
+function loadYouTubeApi() {
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve) => {
+    if (window.YT?.Player) { resolve(window.YT); return; }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { prev?.(); resolve(window.YT); };
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(script);
+  });
+  return ytApiPromise;
+}
+
+const YT_EMBED_BLOCKED_MSG =
+  'This video does not allow embedding. Open it on YouTube in another tab, then Capture Tab Audio and pick that tab.';
 
 function App() {
   const [audioSource, setAudioSource] = useState(null);
-  const [mode, setMode] = useState(null); // null | 'mic' | 'file'
+  const [mode, setMode] = useState(null); // null | 'mic' | 'file' | 'youtube'
   const [fileName, setFileName] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -22,16 +44,22 @@ function App() {
   const [scrubPos, setScrubPos] = useState(0);
   const [hasVideo, setHasVideo] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
-  // Audius
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState(null);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fsDegraded, setFsDegraded] = useState(false);
   const [cursorHidden, setCursorHidden] = useState(false);
   const cursorTimerRef = useRef(null);
-  const [trending, setTrending] = useState(null);
-  const [searchFocused, setSearchFocused] = useState(false);
+  // YouTube tab capture
+  const [ytVideoId, setYtVideoId] = useState(null);
+  const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState('');
+  const [showYtPopover, setShowYtPopover] = useState(false);
+  const [showYtLanding, setShowYtLanding] = useState(false);
+  const [ytLinkInput, setYtLinkInput] = useState('');
+  const [ytNotice, setYtNotice] = useState('');
+  const [ytError, setYtError] = useState('');
+  const captureStreamRef = useRef(null);
+  const ytPlayerRef = useRef(null);
+  const ytPlayerBoxRef = useRef(null);
   const audioCtxRef = useRef(null);
   const audioElRef = useRef(null);
   const micStreamRef = useRef(null);
@@ -44,6 +72,7 @@ function App() {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     if (audioElRef.current) { audioElRef.current.pause(); audioElRef.current = null; }
     if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
+    if (captureStreamRef.current) { captureStreamRef.current.getTracks().forEach(t => t.stop()); captureStreamRef.current = null; }
     if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
     if (videoContainerRef.current) videoContainerRef.current.innerHTML = '';
     setAudioSource(null);
@@ -52,6 +81,10 @@ function App() {
     setDuration(0);
     setHasVideo(false);
     setShowVideo(false);
+    setYtVideoId(null);
+    setCapturing(false);
+    setCaptureError('');
+    setYtError('');
   }, []);
 
   const setupAnalysers = useCallback((ctx, source, isMono, monitor = true) => {
@@ -106,29 +139,6 @@ function App() {
     rafRef.current = requestAnimationFrame(tick);
   }, []);
 
-  const playAudioUrl = useCallback((url, name) => {
-    cleanup();
-    setFileName(name);
-
-    const ctx = new AudioContext();
-    audioCtxRef.current = ctx;
-    const audio = new Audio();
-    audio.crossOrigin = 'anonymous';
-    audio.src = url;
-    audioElRef.current = audio;
-
-    audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
-    audio.addEventListener('ended', () => setIsPlaying(false));
-    audio.addEventListener('play', () => setIsPlaying(true));
-    audio.addEventListener('pause', () => setIsPlaying(false));
-
-    const source = ctx.createMediaElementSource(audio);
-    setupAnalysers(ctx, source, false);
-    audio.play();
-    setIsPlaying(true);
-    startProgressLoop();
-  }, [setupAnalysers, cleanup, startProgressLoop]);
-
   const handleFile = useCallback((file) => {
     if (!file) return;
     cleanup();
@@ -165,58 +175,100 @@ function App() {
     startProgressLoop();
   }, [setupAnalysers, cleanup, startProgressLoop]);
 
-  // --- Audius ---
-  const playAudiusTrack = useCallback((track) => {
-    const streamUrl = `${AUDIUS_API}/tracks/${track.id}/stream?app_name=${AUDIUS_APP}`;
-    const label = `${track.user.name} - ${track.title}`;
-    playAudioUrl(streamUrl, label);
-    setMode('audius');
-    setSearchResults(null);
-    setSearchQuery('');
-    setShowSearch(false);
-  }, [playAudioUrl]);
+  // --- YouTube tab capture ---
+  const stopTabCapture = useCallback(() => {
+    if (!captureStreamRef.current) return;
+    captureStreamRef.current.getTracks().forEach(t => t.stop());
+    captureStreamRef.current = null;
+    if (audioCtxRef.current) { audioCtxRef.current.close(); audioCtxRef.current = null; }
+    setAudioSource(null);
+    setCapturing(false);
+  }, []);
 
-  const handleSearch = useCallback(async (query) => {
-    if (!query.trim()) return;
-    setSearchLoading(true);
+  const startTabCapture = useCallback(async (pickAnyTab = false) => {
+    setCaptureError('');
     try {
-      let data;
-      if (isAudiusUrl(query)) {
-        const res = await fetch(`${AUDIUS_API}/resolve?url=${encodeURIComponent(query)}&app_name=${AUDIUS_APP}`);
-        if (!res.ok) throw new Error('Track not found');
-        const json = await res.json();
-        data = json.data;
-        // Resolve returns a single track — play it directly
-        if (data && data.id) {
-          playAudiusTrack(data);
-          setSearchLoading(false);
-          return;
-        }
-      } else {
-        const res = await fetch(`${AUDIUS_API}/tracks/search?query=${encodeURIComponent(query)}&limit=8&app_name=${AUDIUS_APP}`);
-        if (!res.ok) throw new Error('Search failed');
-        const json = await res.json();
-        data = json.data || [];
-        setSearchResults(data);
+      // Default: one-step dialog offering only this tab (preferCurrentTab).
+      // pickAnyTab: full picker so any tab, window, or screen can be the
+      // audio source; selfBrowserSurface makes this tab choosable there too.
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+        ...(pickAnyTab ? { selfBrowserSurface: 'include' } : { preferCurrentTab: true }),
+      });
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        stream.getTracks().forEach(t => t.stop());
+        setCaptureError('Blobby got no sound - try again and switch on "Also share tab audio"');
+        return;
       }
+      // Only the audio track is needed; drop video to save decoding work
+      stream.getVideoTracks().forEach(t => t.stop());
+      captureStreamRef.current = stream;
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      setupAnalysers(ctx, source, false, false);
+      setCapturing(true);
+      // Fires when the user clicks the browser's "Stop sharing" bar
+      audioTracks[0].addEventListener('ended', stopTabCapture);
     } catch (err) {
-      console.error('Audius error:', err);
-      setSearchResults([]);
+      // User dismissed the picker - not an error worth surfacing
+      console.warn('Tab capture cancelled:', err);
     }
-    setSearchLoading(false);
-  }, [playAudiusTrack]);
+  }, [setupAnalysers, stopTabCapture]);
 
-  const fetchTrending = useCallback(async () => {
-    if (trending) return; // already fetched
-    try {
-      const res = await fetch(`${AUDIUS_API}/tracks/trending?limit=8&app_name=${AUDIUS_APP}`);
-      if (!res.ok) return;
-      const json = await res.json();
-      setTrending(json.data || []);
-    } catch (err) {
-      console.error('Audius trending error:', err);
+  const playYouTube = useCallback((videoId) => {
+    // Keep an active capture alive across video switches - it captures the
+    // whole tab, so a new video needs no new share dialog
+    if (mode !== 'youtube') cleanup();
+    setYtVideoId(videoId);
+    setFileName('youtube.com/watch?v=' + videoId);
+    setMode('youtube');
+    setShowVideo(true);
+    setYtLinkInput('');
+    setShowYtPopover(false);
+    setYtNotice('');
+    setYtError('');
+    // Title lookup is best-effort; oEmbed needs no API key
+    fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.title) setFileName(`${d.author_name} - ${d.title}`); })
+      .catch(() => {});
+  }, [mode, cleanup]);
+
+  // Create/update the IFrame API player; onError catches embed-disabled videos
+  useEffect(() => {
+    if (!ytVideoId) {
+      if (ytPlayerRef.current) {
+        try { ytPlayerRef.current.destroy(); } catch { /* DOM already gone */ }
+        ytPlayerRef.current = null;
+      }
+      return;
     }
-  }, [trending]);
+    let cancelled = false;
+    loadYouTubeApi().then((YT) => {
+      if (cancelled) return;
+      if (ytPlayerRef.current) {
+        ytPlayerRef.current.loadVideoById(ytVideoId);
+      } else if (ytPlayerBoxRef.current) {
+        ytPlayerRef.current = new YT.Player(ytPlayerBoxRef.current, {
+          videoId: ytVideoId,
+          width: 320,
+          height: 180,
+          playerVars: { autoplay: 1, playsinline: 1 },
+          events: {
+            onError: (e) => {
+              if (e.data === 101 || e.data === 150) setYtError(YT_EMBED_BLOCKED_MSG);
+              else if (e.data === 100) setYtError('Video not found or private.');
+              else setYtError('This video cannot be played here.');
+            },
+          },
+        });
+      }
+    });
+    return () => { cancelled = true; };
+  }, [ytVideoId]);
 
   const togglePlay = useCallback(() => {
     const audio = audioElRef.current;
@@ -328,11 +380,26 @@ function App() {
     const onChange = () => {
       const fs = !!document.fullscreenElement;
       setIsFullscreen(fs);
-      if (!fs) { setCursorHidden(false); clearTimeout(cursorTimerRef.current); }
+      if (!fs) {
+        setCursorHidden(false);
+        setFsDegraded(false);
+        clearTimeout(cursorTimerRef.current);
+      }
     };
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
+
+  // While a tab is being shared, Chromium keeps the browser toolbar visible in
+  // fullscreen (anti-phishing). Detect that "degraded" fullscreen by checking
+  // whether the viewport actually reached screen height.
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const check = () => setFsDegraded(window.innerHeight < screen.height - 40);
+    const timer = setTimeout(check, 400); // let the fullscreen transition settle
+    window.addEventListener('resize', check);
+    return () => { clearTimeout(timer); window.removeEventListener('resize', check); };
+  }, [isFullscreen]);
 
   const resetCursorTimer = useCallback(() => {
     setCursorHidden(false);
@@ -353,48 +420,31 @@ function App() {
   const displayProgress = scrubbing ? scrubPos : progress;
   const seekPercent = duration ? `${(displayProgress / duration) * 100}%` : '0%';
 
-  const showTrending = searchFocused && !searchQuery && !searchResults;
-  const displayTracks = searchResults || (showTrending ? trending : null);
-
-  const searchUI = (
+  const youtubeUI = (
     <div className="search-wrapper">
-      <form className="search-row" onSubmit={(e) => { e.preventDefault(); handleSearch(searchQuery); }}>
+      <form
+        className="search-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const id = parseYouTubeId(ytLinkInput);
+          if (id) playYouTube(id);
+          else setYtNotice('Not a valid YouTube link');
+        }}
+      >
         <input
           className="search-input"
           type="text"
-          placeholder="Search Audius or paste link"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          onFocus={() => { setSearchFocused(true); fetchTrending(); }}
-          onBlur={() => setTimeout(() => setSearchFocused(false), 200)}
-          autoFocus={showSearch}
+          placeholder="Paste a YouTube link"
+          value={ytLinkInput}
+          onChange={(e) => { setYtLinkInput(e.target.value); setYtNotice(''); }}
+          autoFocus
         />
-        {searchQuery && (
-          <button className="search-go" type="submit" disabled={searchLoading}>
-            {searchLoading ? '...' : 'Go'}
-          </button>
-        )}
+        {ytLinkInput && <button className="search-go" type="submit">Go</button>}
       </form>
-      {displayTracks && (
+      <div className="search-hint">Copy the link from YouTube&apos;s address bar or its Share button</div>
+      {ytNotice && (
         <div className="search-results">
-          {showTrending && <div className="search-label">Trending on Audius</div>}
-          {displayTracks.length === 0 && <div className="search-empty">No results found</div>}
-          {displayTracks.map((track) => (
-            <button
-              key={track.id}
-              className="search-result"
-              onClick={() => playAudiusTrack(track)}
-            >
-              {track.artwork?.['150x150'] && (
-                <img className="result-art" src={track.artwork['150x150']} alt="" />
-              )}
-              <div className="result-info">
-                <span className="result-title">{track.title}</span>
-                <span className="result-artist">{track.user.name}</span>
-              </div>
-              <span className="result-duration">{formatTime(track.duration)}</span>
-            </button>
-          ))}
+          <div className="search-empty">{ytNotice}</div>
         </div>
       )}
     </div>
@@ -408,17 +458,35 @@ function App() {
       onDrop={handleDrop}
     >
       <div
-        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}${cursorHidden ? ' cursor-hidden' : ''}`}
+        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}${cursorHidden ? ' cursor-hidden' : ''}${!mode ? ' landing' : ''}`}
         onClick={isFullscreen ? () => document.exitFullscreen() : undefined}
         onMouseMove={isFullscreen ? resetCursorTimer : undefined}
       >
         <Blobby audioSource={audioSource} />
       </div>
 
+      {isFullscreen && fsDegraded && (
+        <div className="fs-notice">
+          Your browser keeps its toolbar visible while a tab is being shared.
+          Stop sharing to get true fullscreen.
+        </div>
+      )}
+
       {!isFullscreen && <div
         className={`video-pip${showVideo && hasVideo ? ' visible' : ''}`}
         ref={videoContainerRef}
       />}
+
+      {/* Stays mounted when hidden/minimized/fullscreen so playback continues.
+          The IFrame API replaces the inner div, so React must never touch it. */}
+      {mode === 'youtube' && ytVideoId && (
+        <div className={`youtube-pip${isFullscreen || !showVideo ? ' hidden' : ''}`}>
+          <div className="yt-player-box">
+            <div ref={ytPlayerBoxRef} />
+          </div>
+          {ytError && <div className="yt-error">{ytError}</div>}
+        </div>
+      )}
 
       {!isFullscreen && dragOver && (
         <div className="drag-overlay">
@@ -429,30 +497,76 @@ function App() {
       {!isFullscreen && !mode && (
         <div className="controls-overlay">
           <h1>Blobby</h1>
-          <p>Drop an audio file or use your mic</p>
-          <div className="buttons">
-            <button onClick={startMic}>Use Microphone</button>
-            <label className="file-button">
-              Choose File
+          <p>Blobby dances to whatever you play. Where&apos;s your music?</p>
+          <div className="source-cards">
+            {SUPPORTS_TAB_CAPTURE && (
+              <button
+                className={`source-card${showYtLanding ? ' selected' : ''}`}
+                onClick={() => setShowYtLanding(v => !v)}
+              >
+                <span className="card-title">YouTube</span>
+                <span className="card-desc">Paste a video link</span>
+              </button>
+            )}
+            <button className="source-card" onClick={startMic}>
+              <span className="card-title">Microphone</span>
+              <span className="card-desc">Blobby hears the room</span>
+            </button>
+            <label className="source-card">
+              <span className="card-title">My own file</span>
+              <span className="card-desc">Songs or videos</span>
               <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </label>
           </div>
-          {searchUI}
+          {showYtLanding && youtubeUI}
+          {!showYtLanding && <p className="drop-hint">...or just drag a song onto this page</p>}
         </div>
       )}
 
-      {!isFullscreen && mode && showSearch && (
+      {!isFullscreen && mode === 'youtube' && ytVideoId && !capturing && !showYtPopover && (
+        <div className="capture-guide">
+          {ytError ? (
+            <>
+              <div>
+                <strong>This video won&apos;t play here.</strong> Open it on YouTube in
+                another tab, press play there, then come back and:
+              </div>
+              <button className="capture-btn big" onClick={() => startTabCapture(true)}>
+                Capture That Tab
+              </button>
+              <div className="guide-steps">
+                In the popup: pick the YouTube tab, then switch on <em>Also share tab audio</em>.
+              </div>
+            </>
+          ) : (
+            <>
+              <div><strong>One more step!</strong> Blobby needs your OK to hear this tab.</div>
+              <button className="capture-btn big" onClick={() => startTabCapture(false)}>
+                Let Blobby Listen
+              </button>
+              <div className="guide-steps">
+                A popup will ask - switch on <em>Also share tab audio</em>, then click <em>Allow</em>.
+              </div>
+              <button className="guide-alt" onClick={() => startTabCapture(true)}>
+                Music playing in a different tab? Capture that instead
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {!isFullscreen && mode && showYtPopover && (
         <>
-          <div className="search-backdrop" onClick={() => setShowSearch(false)} />
+          <div className="search-backdrop" onClick={() => setShowYtPopover(false)} />
           <div className="search-popover">
-            {searchUI}
+            {youtubeUI}
           </div>
         </>
       )}
 
       {!isFullscreen && mode && (
         <div className="bottom-bar">
-          {(mode === 'file' || mode === 'audius') && (
+          {mode === 'file' && (
             <div
               className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
               ref={seekBarRef}
@@ -472,13 +586,18 @@ function App() {
               <button className={`tab ${mode === 'mic' ? 'active' : ''}`} onClick={startMic}>
                 Mic
               </button>
-              <button className={`tab ${showSearch || mode === 'audius' ? 'active' : ''}`} onClick={() => setShowSearch(v => !v)}>
-                Audius
-              </button>
+              {SUPPORTS_TAB_CAPTURE && (
+                <button
+                  className={`tab ${showYtPopover || mode === 'youtube' ? 'active' : ''}`}
+                  onClick={() => setShowYtPopover(v => !v)}
+                >
+                  YouTube
+                </button>
+              )}
               <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </div>
 
-            {(mode === 'file' || mode === 'audius') && (
+            {mode === 'file' && (
               <>
                 <button className="play-btn" onClick={togglePlay}>
                   {isPlaying ? '||' : '\u25B6'}
@@ -490,13 +609,34 @@ function App() {
               </>
             )}
 
-            {mode === 'file' && hasVideo && (
+            {((mode === 'file' && hasVideo) || mode === 'youtube') && (
               <button
                 className={`tab ${showVideo ? 'active' : ''}`}
                 onClick={() => setShowVideo(v => !v)}
               >
                 Video
               </button>
+            )}
+
+            {mode === 'youtube' && (
+              <>
+                {capturing ? (
+                  <>
+                    <span className="capture-live"><span className="live-dot" />Capturing</span>
+                    <button className="tab" onClick={stopTabCapture}>Stop</button>
+                  </>
+                ) : (
+                  <button
+                    className="capture-btn"
+                    onClick={() => startTabCapture(false)}
+                    title={'A popup will ask to share this tab - switch on "Also share tab audio", then click Allow'}
+                  >
+                    Let Blobby Listen
+                  </button>
+                )}
+                {captureError && <span className="capture-error">{captureError}</span>}
+                <span className="file-name">{fileName}</span>
+              </>
             )}
 
             {mode === 'mic' && <span className="mic-label">Listening...</span>}
