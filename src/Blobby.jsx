@@ -238,7 +238,10 @@ export default function Blobby({ audioSource }) {
       const innerRadius = maxRadius * 0.38;
       const barMaxLen = maxRadius - innerRadius;
       const angleStep = (Math.PI * 2) / NUM_BARS;
-      const startAngle = Math.PI / 2;
+      // Half-bin offset centers the L/R mirror seams exactly at the top and
+      // bottom; without it bin 32 sits dead-center at the top, so the right
+      // channel owns that pixel and the mirror looks shifted
+      const startAngle = Math.PI / 2 + angleStep / 2;
       const half = NUM_BARS >> 1;
 
       // Smooth each channel: 4 passes

@@ -56,6 +56,20 @@ function loadYouTubeApi() {
   return ytApiPromise;
 }
 
+// SoundCloud Widget API loader (needed for looping)
+let scApiPromise = null;
+function loadSoundCloudApi() {
+  if (scApiPromise) return scApiPromise;
+  scApiPromise = new Promise((resolve) => {
+    if (window.SC?.Widget) { resolve(window.SC); return; }
+    const script = document.createElement('script');
+    script.src = 'https://w.soundcloud.com/player/api.js';
+    script.onload = () => resolve(window.SC);
+    document.head.appendChild(script);
+  });
+  return scApiPromise;
+}
+
 const YT_EMBED_BLOCKED_MSG =
   'This video does not allow embedding. Open it on YouTube in another tab, then Capture Tab Audio and pick that tab.';
 
@@ -92,6 +106,7 @@ function App() {
   const captureStreamRef = useRef(null);
   const ytPlayerRef = useRef(null);
   const ytPlayerBoxRef = useRef(null);
+  const scIframeRef = useRef(null);
   const audioCtxRef = useRef(null);
   const audioElRef = useRef(null);
   const micStreamRef = useRef(null);
@@ -309,6 +324,35 @@ function App() {
         .catch(() => {});
     }
   }, [mode, cleanup]);
+
+  // SoundCloud loop: the widget fires FINISH per track; restart the track
+  // (or jump back to the first sound of a set) when loop is on
+  useEffect(() => {
+    if (linkService !== 'soundcloud' || !webEmbedUrl) return;
+    let widget = null;
+    let cancelled = false;
+    loadSoundCloudApi().then((SC) => {
+      if (cancelled || !SC?.Widget || !scIframeRef.current) return;
+      widget = SC.Widget(scIframeRef.current);
+      widget.bind(SC.Widget.Events.FINISH, () => {
+        if (!ytLoopRef.current) return;
+        widget.getSounds((sounds) => {
+          if (!sounds || sounds.length <= 1) {
+            widget.seekTo(0);
+            widget.play();
+          } else {
+            widget.getCurrentSoundIndex((idx) => {
+              if (idx >= sounds.length - 1) widget.skip(0);
+            });
+          }
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+      if (widget) { try { widget.unbind(window.SC.Widget.Events.FINISH); } catch { /* iframe gone */ } }
+    };
+  }, [linkService, webEmbedUrl]);
 
   const toggleYtLoop = useCallback(() => {
     const next = !ytLoopRef.current;
@@ -655,6 +699,7 @@ function App() {
                 ) : (
                   <div className="player-media wide">
                     <iframe
+                      ref={scIframeRef}
                       src={webEmbedUrl}
                       title={`${linkService} player`}
                       allow="autoplay; encrypted-media"
@@ -774,7 +819,7 @@ function App() {
               <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </div>
 
-            {mode === 'link' && linkService === 'youtube' && (
+            {mode === 'link' && linkService !== 'spotify' && (
               <button
                 className={`tab ${ytLoop ? 'active' : ''}`}
                 onClick={toggleYtLoop}
