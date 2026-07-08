@@ -85,7 +85,10 @@ function App() {
       const ctx = new AudioContext();
       audioCtxRef.current = ctx;
       const source = ctx.createMediaStreamSource(stream);
-      setupAnalysers(ctx, source, false, false);
+      // Treat mic as mono: phone mics often deliver imbalanced or single-channel
+      // stereo, which made the blob lopsided. The mono path renders the mixed
+      // signal symmetrically on both halves.
+      setupAnalysers(ctx, source, true, false);
       setMode('mic');
     } catch (err) {
       console.error('Mic access denied:', err);

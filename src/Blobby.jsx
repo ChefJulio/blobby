@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect } from 'react';
 
 // --- Audio utility functions ---
 
@@ -97,7 +97,7 @@ export default function Blobby({ audioSource }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const starsRef = useRef(null);
-  if (!starsRef.current) starsRef.current = createStars();
+  if (starsRef.current == null) starsRef.current = createStars();
 
   // Draw idle blob when no audio source
   useEffect(() => {
