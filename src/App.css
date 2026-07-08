@@ -83,6 +83,22 @@ body {
   border: 0;
 }
 
+/* Small screens: shrink the player and move it to the top-right corner so
+   it can't cover the blob's center or the capture guide at the bottom */
+@media (max-width: 700px), (max-height: 500px) {
+  .youtube-pip {
+    top: 12px;
+    right: 12px;
+    bottom: auto;
+  }
+
+  .youtube-pip iframe {
+    width: min(44vw, 240px);
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+}
+
 .yt-error {
   position: absolute;
   inset: 0;
