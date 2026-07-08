@@ -4,9 +4,14 @@ import './App.css';
 
 const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mov';
 
-function parseYouTubeId(str) {
-  const m = str.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
-  return m ? m[1] : null;
+function parseYouTubeTarget(str) {
+  const videoId = (str.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/) || [])[1] || null;
+  let listId = (str.match(/[?&]list=([\w-]+)/) || [])[1] || null;
+  // Mixes (RD*) and private lists (WL/LL) don't work in embeds - drop them
+  // and fall back to the single video if there is one
+  if (listId && /^(RD|WL|LL)/.test(listId)) listId = null;
+  if (!videoId && !listId) return null;
+  return { videoId, listId };
 }
 
 // Tab audio capture via getDisplayMedia only works on desktop Chromium.
@@ -50,6 +55,7 @@ function App() {
   const cursorTimerRef = useRef(null);
   // YouTube tab capture
   const [ytVideoId, setYtVideoId] = useState(null);
+  const [ytListId, setYtListId] = useState(null);
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState('');
   const [showYtPopover, setShowYtPopover] = useState(false);
@@ -57,6 +63,8 @@ function App() {
   const [ytLinkInput, setYtLinkInput] = useState('');
   const [ytNotice, setYtNotice] = useState('');
   const [ytError, setYtError] = useState('');
+  const [ytLoop, setYtLoop] = useState(false);
+  const ytLoopRef = useRef(false); // read inside player callbacks
   const captureStreamRef = useRef(null);
   const ytPlayerRef = useRef(null);
   const ytPlayerBoxRef = useRef(null);
@@ -82,6 +90,7 @@ function App() {
     setHasVideo(false);
     setShowVideo(false);
     setYtVideoId(null);
+    setYtListId(null);
     setCapturing(false);
     setCaptureError('');
     setYtError('');
@@ -218,57 +227,76 @@ function App() {
     }
   }, [setupAnalysers, stopTabCapture]);
 
-  const playYouTube = useCallback((videoId) => {
-    // Keep an active capture alive across video switches - it captures the
-    // whole tab, so a new video needs no new share dialog
+  const playYouTube = useCallback((target) => {
+    // Keep an active capture alive across video/playlist switches - it
+    // captures the whole tab, so a new target needs no new share dialog
     if (mode !== 'youtube') cleanup();
-    setYtVideoId(videoId);
-    setFileName('youtube.com/watch?v=' + videoId);
+    setYtVideoId(target.videoId);
+    setYtListId(target.listId);
+    setFileName(target.videoId ? 'youtube.com/watch?v=' + target.videoId : 'YouTube playlist');
     setMode('youtube');
     setShowVideo(true);
     setYtLinkInput('');
     setShowYtPopover(false);
     setYtNotice('');
     setYtError('');
-    // Title lookup is best-effort; oEmbed needs no API key
-    fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (d?.title) setFileName(`${d.author_name} - ${d.title}`); })
-      .catch(() => {});
   }, [mode, cleanup]);
 
-  // Create/update the IFrame API player; onError catches embed-disabled videos
+  const toggleYtLoop = useCallback(() => {
+    const next = !ytLoopRef.current;
+    ytLoopRef.current = next;
+    setYtLoop(next);
+    try { ytPlayerRef.current?.setLoop(next); } catch { /* player not ready */ }
+  }, []);
+
+  // (Re)create the IFrame API player for the current video/playlist. The
+  // wrapper is keyed on the target, so each change mounts a fresh box div.
   useEffect(() => {
-    if (!ytVideoId) {
-      if (ytPlayerRef.current) {
-        try { ytPlayerRef.current.destroy(); } catch { /* DOM already gone */ }
-        ytPlayerRef.current = null;
-      }
-      return;
+    if (ytPlayerRef.current) {
+      try { ytPlayerRef.current.destroy(); } catch { /* DOM already gone */ }
+      ytPlayerRef.current = null;
     }
+    if (!ytVideoId && !ytListId) return;
     let cancelled = false;
     loadYouTubeApi().then((YT) => {
-      if (cancelled) return;
-      if (ytPlayerRef.current) {
-        ytPlayerRef.current.loadVideoById(ytVideoId);
-      } else if (ytPlayerBoxRef.current) {
-        ytPlayerRef.current = new YT.Player(ytPlayerBoxRef.current, {
-          videoId: ytVideoId,
-          width: 320,
-          height: 180,
-          playerVars: { autoplay: 1, playsinline: 1 },
-          events: {
-            onError: (e) => {
-              if (e.data === 101 || e.data === 150) setYtError(YT_EMBED_BLOCKED_MSG);
-              else if (e.data === 100) setYtError('Video not found or private.');
-              else setYtError('This video cannot be played here.');
-            },
+      if (cancelled || !ytPlayerBoxRef.current) return;
+      ytPlayerRef.current = new YT.Player(ytPlayerBoxRef.current, {
+        ...(ytVideoId ? { videoId: ytVideoId } : {}),
+        width: 320,
+        height: 180,
+        playerVars: {
+          autoplay: 1,
+          playsinline: 1,
+          ...(ytListId ? { listType: 'playlist', list: ytListId } : {}),
+        },
+        events: {
+          onReady: (e) => {
+            // Playlist looping is native; re-apply the preference per player
+            if (ytLoopRef.current) e.target.setLoop(true);
           },
-        });
-      }
+          onStateChange: (e) => {
+            // Keep the label current as playlists auto-advance
+            if (e.data === 1) {
+              setYtError(''); // playlists skip past unplayable entries
+              const d = e.target.getVideoData?.();
+              if (d?.title) setFileName(d.author ? `${d.author} - ${d.title}` : d.title);
+            }
+            // Single videos have no native loop - replay on end
+            if (e.data === 0 && ytLoopRef.current && !ytListId) {
+              e.target.seekTo(0);
+              e.target.playVideo();
+            }
+          },
+          onError: (e) => {
+            if (e.data === 101 || e.data === 150) setYtError(YT_EMBED_BLOCKED_MSG);
+            else if (e.data === 100) setYtError('Video not found or private.');
+            else setYtError('This video cannot be played here.');
+          },
+        },
+      });
     });
     return () => { cancelled = true; };
-  }, [ytVideoId]);
+  }, [ytVideoId, ytListId]);
 
   const togglePlay = useCallback(() => {
     const audio = audioElRef.current;
@@ -426,8 +454,8 @@ function App() {
         className="search-row"
         onSubmit={(e) => {
           e.preventDefault();
-          const id = parseYouTubeId(ytLinkInput);
-          if (id) playYouTube(id);
+          const target = parseYouTubeTarget(ytLinkInput);
+          if (target) playYouTube(target);
           else setYtNotice('Not a valid YouTube link');
         }}
       >
@@ -441,7 +469,7 @@ function App() {
         />
         {ytLinkInput && <button className="search-go" type="submit">Go</button>}
       </form>
-      <div className="search-hint">Copy the link from YouTube&apos;s address bar or its Share button</div>
+      <div className="search-hint">Video and playlist links both work - copy from YouTube&apos;s address bar or Share button</div>
       {ytNotice && (
         <div className="search-results">
           <div className="search-empty">{ytNotice}</div>
@@ -479,9 +507,9 @@ function App() {
 
       {/* Stays mounted when hidden/minimized/fullscreen so playback continues.
           The IFrame API replaces the inner div, so React must never touch it. */}
-      {mode === 'youtube' && ytVideoId && (
+      {mode === 'youtube' && (ytVideoId || ytListId) && (
         <div className={`youtube-pip${isFullscreen || !showVideo ? ' hidden' : ''}`}>
-          <div className="yt-player-box">
+          <div className="yt-player-box" key={`${ytVideoId}|${ytListId}`}>
             <div ref={ytPlayerBoxRef} />
           </div>
           {ytError && <div className="yt-error">{ytError}</div>}
@@ -523,7 +551,7 @@ function App() {
         </div>
       )}
 
-      {!isFullscreen && mode === 'youtube' && ytVideoId && !capturing && !showYtPopover && (
+      {!isFullscreen && mode === 'youtube' && (ytVideoId || ytListId) && !capturing && !showYtPopover && (
         <div className="capture-guide">
           {ytError ? (
             <>
@@ -620,6 +648,13 @@ function App() {
 
             {mode === 'youtube' && (
               <>
+                <button
+                  className={`tab ${ytLoop ? 'active' : ''}`}
+                  onClick={toggleYtLoop}
+                  title="Replay the video or playlist when it ends"
+                >
+                  Loop
+                </button>
                 {capturing ? (
                   <>
                     <span className="capture-live"><span className="live-dot" />Capturing</span>
