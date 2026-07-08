@@ -4,14 +4,36 @@ import './App.css';
 
 const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mov';
 
-function parseYouTubeTarget(str) {
+function parseLinkTarget(str) {
   const videoId = (str.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/) || [])[1] || null;
   let listId = (str.match(/[?&]list=([\w-]+)/) || [])[1] || null;
   // Mixes (RD*) and private lists (WL/LL) don't work in embeds - drop them
   // and fall back to the single video if there is one
   if (listId && /^(RD|WL|LL)/.test(listId)) listId = null;
-  if (!videoId && !listId) return null;
-  return { videoId, listId };
+  if (videoId || listId) return { service: 'youtube', videoId, listId };
+
+  const sp = str.match(/open\.spotify\.com\/(?:intl-[\w-]+\/)?(track|album|playlist|artist|episode|show)\/([A-Za-z0-9]+)/);
+  if (sp) {
+    return {
+      service: 'spotify',
+      pageUrl: `https://open.spotify.com/${sp[1]}/${sp[2]}`,
+      embedUrl: `https://open.spotify.com/embed/${sp[1]}/${sp[2]}`,
+    };
+  }
+
+  // Needs user/track (or user/sets/playlist) - a bare profile isn't playable
+  const sc = str.match(/https?:\/\/(?:www\.)?soundcloud\.com\/[\w-]+\/(?:sets\/)?[\w-]+/);
+  if (sc) {
+    return {
+      service: 'soundcloud',
+      pageUrl: sc[0],
+      // visual=true renders over the track artwork with a dark overlay -
+      // the classic widget is white-only and clashes with the theme
+      embedUrl: `https://w.soundcloud.com/player/?url=${encodeURIComponent(sc[0])}&auto_play=true&visual=true&show_teaser=false`,
+    };
+  }
+
+  return null;
 }
 
 // Tab audio capture via getDisplayMedia only works on desktop Chromium.
@@ -39,7 +61,7 @@ const YT_EMBED_BLOCKED_MSG =
 
 function App() {
   const [audioSource, setAudioSource] = useState(null);
-  const [mode, setMode] = useState(null); // null | 'mic' | 'file' | 'youtube'
+  const [mode, setMode] = useState(null); // null | 'mic' | 'file' | 'link'
   const [fileName, setFileName] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -48,18 +70,20 @@ function App() {
   const [scrubbing, setScrubbing] = useState(false);
   const [scrubPos, setScrubPos] = useState(0);
   const [hasVideo, setHasVideo] = useState(false);
-  const [showVideo, setShowVideo] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fsDegraded, setFsDegraded] = useState(false);
   const [cursorHidden, setCursorHidden] = useState(false);
   const cursorTimerRef = useRef(null);
-  // YouTube tab capture
+  // Link mode (YouTube / Spotify / SoundCloud embeds + tab capture)
+  const [linkService, setLinkService] = useState(null); // 'youtube' | 'spotify' | 'soundcloud'
+  const [webEmbedUrl, setWebEmbedUrl] = useState(null); // spotify/soundcloud iframe src
   const [ytVideoId, setYtVideoId] = useState(null);
   const [ytListId, setYtListId] = useState(null);
   const [capturing, setCapturing] = useState(false);
   const [captureError, setCaptureError] = useState('');
   const [showYtPopover, setShowYtPopover] = useState(false);
   const [showYtLanding, setShowYtLanding] = useState(false);
+  const [playerHidden, setPlayerHidden] = useState(false);
   const [ytLinkInput, setYtLinkInput] = useState('');
   const [ytNotice, setYtNotice] = useState('');
   const [ytError, setYtError] = useState('');
@@ -88,9 +112,10 @@ function App() {
     setProgress(0);
     setDuration(0);
     setHasVideo(false);
-    setShowVideo(false);
     setYtVideoId(null);
     setYtListId(null);
+    setLinkService(null);
+    setWebEmbedUrl(null);
     setCapturing(false);
     setCaptureError('');
     setYtError('');
@@ -177,9 +202,7 @@ function App() {
 
     media.addEventListener('loadedmetadata', () => {
       setDuration(media.duration);
-      const isVideo = media.videoWidth > 0 && media.videoHeight > 0;
-      setHasVideo(isVideo);
-      if (isVideo) setShowVideo(true);
+      setHasVideo(media.videoWidth > 0 && media.videoHeight > 0);
     });
     media.addEventListener('ended', () => setIsPlaying(false));
     media.addEventListener('play', () => setIsPlaying(true));
@@ -256,19 +279,35 @@ function App() {
     }
   }, [setupAnalysers, stopYtAudio]);
 
-  const playYouTube = useCallback((target) => {
-    // Keep an active capture alive across video/playlist switches - it
-    // captures the whole tab, so a new target needs no new share dialog
-    if (mode !== 'youtube') cleanup();
-    setYtVideoId(target.videoId);
-    setYtListId(target.listId);
-    setFileName(target.videoId ? 'youtube.com/watch?v=' + target.videoId : 'YouTube playlist');
-    setMode('youtube');
-    setShowVideo(true);
+  const playLink = useCallback((target) => {
+    // Keep an active capture alive across link switches - it captures the
+    // whole tab, so a new target needs no new share dialog
+    if (mode !== 'link') cleanup();
+    setMode('link');
+    setLinkService(target.service);
     setYtLinkInput('');
     setShowYtPopover(false);
     setYtNotice('');
     setYtError('');
+    if (target.service === 'youtube') {
+      setWebEmbedUrl(null);
+      setYtVideoId(target.videoId);
+      setYtListId(target.listId);
+      setFileName(target.videoId ? 'youtube.com/watch?v=' + target.videoId : 'YouTube playlist');
+    } else {
+      setYtVideoId(null);
+      setYtListId(null);
+      setWebEmbedUrl(target.embedUrl);
+      setFileName(target.pageUrl.replace(/^https?:\/\//, ''));
+      // Title lookup is best-effort; both oEmbed endpoints are keyless
+      const oembedUrl = target.service === 'spotify'
+        ? `https://open.spotify.com/oembed?url=${encodeURIComponent(target.pageUrl)}`
+        : `https://soundcloud.com/oembed?format=json&url=${encodeURIComponent(target.pageUrl)}`;
+      fetch(oembedUrl)
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d?.title) setFileName(d.title); })
+        .catch(() => {});
+    }
   }, [mode, cleanup]);
 
   const toggleYtLoop = useCallback(() => {
@@ -426,6 +465,17 @@ function App() {
     if (file) handleFile(file);
   }, [handleFile]);
 
+  // The file <video> element is created before the player card renders (e.g.
+  // from the landing screen), so attach it to the card's media box once both
+  // exist. Runs when hasVideo flips true after metadata loads.
+  useEffect(() => {
+    const el = audioElRef.current;
+    const box = videoContainerRef.current;
+    if (mode === 'file' && hasVideo && el && box && el.parentNode !== box) {
+      box.appendChild(el);
+    }
+  }, [mode, hasVideo]);
+
   const formatTime = (s) => {
     if (!isFinite(s)) return '0:00';
     const m = Math.floor(s / 60);
@@ -483,22 +533,22 @@ function App() {
         className="search-row"
         onSubmit={(e) => {
           e.preventDefault();
-          const target = parseYouTubeTarget(ytLinkInput);
-          if (target) playYouTube(target);
-          else setYtNotice('Not a valid YouTube link');
+          const target = parseLinkTarget(ytLinkInput);
+          if (target) playLink(target);
+          else setYtNotice('Not a valid YouTube, Spotify, or SoundCloud link');
         }}
       >
         <input
           className="search-input"
           type="text"
-          placeholder="Paste a YouTube link"
+          placeholder="Paste a YouTube, Spotify, or SoundCloud link"
           value={ytLinkInput}
           onChange={(e) => { setYtLinkInput(e.target.value); setYtNotice(''); }}
           autoFocus
         />
         {ytLinkInput && <button className="search-go" type="submit">Go</button>}
       </form>
-      <div className="search-hint">Video and playlist links both work - copy from YouTube&apos;s address bar or Share button</div>
+      <div className="search-hint">Songs, videos, albums, and playlists all work - copy the link from the app or address bar</div>
       {ytNotice && (
         <div className="search-results">
           <div className="search-empty">{ytNotice}</div>
@@ -515,7 +565,13 @@ function App() {
       onDrop={handleDrop}
     >
       <div
-        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}${cursorHidden ? ' cursor-hidden' : ''}${!mode ? ' landing' : ''}`}
+        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}${cursorHidden ? ' cursor-hidden' : ''}${!isFullscreen ? (
+          playerHidden ? ' dock-min'
+            : !mode ? ' landing'
+            : mode === 'mic' ? ' dock-slim'
+            : webEmbedUrl ? ' dock-xtall'
+            : ' dock-tall'
+        ) : ''}`}
         onClick={isFullscreen ? () => document.exitFullscreen() : undefined}
         onMouseMove={isFullscreen ? resetCursorTimer : undefined}
       >
@@ -529,121 +585,157 @@ function App() {
         </div>
       )}
 
-      {!isFullscreen && <div
-        className={`video-pip${showVideo && hasVideo ? ' visible' : ''}`}
-        ref={videoContainerRef}
-      />}
-
-      {/* Stays mounted when hidden/minimized/fullscreen so playback continues.
-          The IFrame API replaces the inner div, so React must never touch it. */}
-      {mode === 'youtube' && (ytVideoId || ytListId) && (
-        <div className={`youtube-pip${isFullscreen || !showVideo ? ' hidden' : ''}`}>
-          <div className="yt-player-box" key={`${ytVideoId}|${ytListId}`}>
-            <div ref={ytPlayerBoxRef} />
-          </div>
-          {ytError && <div className="yt-error">{ytError}</div>}
-        </div>
-      )}
-
       {!isFullscreen && dragOver && (
         <div className="drag-overlay">
           <div className="drag-label">Drop audio file</div>
         </div>
       )}
 
-      {!isFullscreen && !mode && (
-        <div className="controls-overlay">
-          <h1>Blobby</h1>
-          <p>Blobby dances to whatever you play. Where&apos;s your music?</p>
-          <div className="source-cards">
-            <button
-              className={`source-card${showYtLanding ? ' selected' : ''}`}
-              onClick={() => setShowYtLanding(v => !v)}
-            >
-              <span className="card-title">YouTube</span>
-              <span className="card-desc">Paste a video link</span>
-            </button>
-            <button className="source-card" onClick={startMic}>
-              <span className="card-title">Microphone</span>
-              <span className="card-desc">Blobby hears the room</span>
-            </button>
-            <label className="source-card">
-              <span className="card-title">My own file</span>
-              <span className="card-desc">Songs or videos</span>
-              <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
-            </label>
-          </div>
-          {showYtLanding && youtubeUI}
-          {!showYtLanding && <p className="drop-hint">...or just drag a song onto this page</p>}
-        </div>
+      {playerHidden && !isFullscreen && (
+        <button className="player-show-btn" onClick={() => setPlayerHidden(false)} title="Show controls">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <polyline points="2,8 6,4 10,8" />
+          </svg>
+        </button>
       )}
 
-      {!isFullscreen && mode === 'youtube' && (ytVideoId || ytListId) && !capturing && !showYtPopover && (
-        <div className="capture-guide">
-          {ytError ? (
-            SUPPORTS_TAB_CAPTURE ? (
-              <>
-                <div>
-                  <strong>This video won&apos;t play here.</strong> Open it on YouTube in
-                  another tab, press play there, then come back and:
-                </div>
-                <button className="capture-btn big" onClick={() => startTabCapture(true)}>
-                  Capture That Tab
-                </button>
-                <div className="guide-steps">
-                  In the popup: pick the YouTube tab, then switch on <em>Also share tab audio</em>.
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <strong>This video won&apos;t play here.</strong> Play it in the YouTube
-                  app out loud, then:
-                </div>
-                <button className="capture-btn big" onClick={startMicListen}>
-                  Let Blobby Listen
-                </button>
-                <div className="guide-steps">Blobby listens through your microphone.</div>
-              </>
-            )
-          ) : SUPPORTS_TAB_CAPTURE ? (
-            <>
-              <div><strong>One more step!</strong> Blobby needs your OK to hear this tab.</div>
-              <button className="capture-btn big" onClick={() => startTabCapture(false)}>
-                Let Blobby Listen
+      {/* Player card: all controls and the media preview live here. Kept
+          mounted (visibility-hidden) when hidden or fullscreen so playback
+          continues - the YouTube iframe would stop if unmounted. */}
+      <div className={`player-card${isFullscreen || playerHidden ? ' card-hidden' : ''}`}>
+        <button className="card-hide-btn" onClick={() => setPlayerHidden(true)} title="Hide controls">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <polyline points="2,4 6,8 10,4" />
+          </svg>
+        </button>
+
+        {!mode && (
+          <div className="card-landing">
+            <h1>Blobby</h1>
+            <p>Blobby likes to dance</p>
+            <div className="source-cards">
+              <button
+                className={`source-card${showYtLanding ? ' selected' : ''}`}
+                onClick={() => setShowYtLanding(v => !v)}
+              >
+                <span className="card-title">Paste a link</span>
+                <span className="card-desc">YouTube, Spotify, SoundCloud</span>
               </button>
-              <div className="guide-steps">
-                A popup will ask - switch on <em>Also share tab audio</em>, then click <em>Allow</em>.
+              <button className="source-card" onClick={startMic}>
+                <span className="card-title">Microphone</span>
+                <span className="card-desc">Blobby hears the room</span>
+              </button>
+              <label className="source-card">
+                <span className="card-title">My own file</span>
+                <span className="card-desc">Songs or videos</span>
+                <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
+              </label>
+            </div>
+            {showYtLanding && youtubeUI}
+            {!showYtLanding && <p className="drop-hint">...or just drag a song onto this page</p>}
+          </div>
+        )}
+
+        {mode && showYtPopover && youtubeUI}
+
+          {(mode === 'link' || mode === 'file') && (
+            <div className={`player-media-row${webEmbedUrl ? ' stacked' : ''}`}>
+              {mode === 'link' ? (
+                linkService === 'youtube' ? (
+                  (ytVideoId || ytListId) && (
+                    /* The IFrame API replaces the inner div - React must never
+                       touch inside .yt-player-box */
+                    <div className="player-media" key={`${ytVideoId}|${ytListId}`}>
+                      <div className="yt-player-box">
+                        <div ref={ytPlayerBoxRef} />
+                      </div>
+                      {ytError && <div className="yt-error">{ytError}</div>}
+                    </div>
+                  )
+                ) : (
+                  <div className="player-media wide">
+                    <iframe
+                      src={webEmbedUrl}
+                      title={`${linkService} player`}
+                      allow="autoplay; encrypted-media"
+                    />
+                  </div>
+                )
+              ) : (
+                <div className={`player-media${hasVideo ? '' : ' collapsed'}`} ref={videoContainerRef} />
+              )}
+
+              <div className="player-side">
+                <div className="player-title">{fileName}</div>
+
+                {mode === 'link' && (capturing ? (
+                  <div className="player-controls">
+                    <span className="capture-live">
+                      <span className="live-dot" />
+                      {SUPPORTS_TAB_CAPTURE ? 'Capturing tab audio' : 'Listening'}
+                    </span>
+                    <button className="tab" onClick={stopYtAudio}>Stop</button>
+                  </div>
+                ) : (
+                  <>
+                    {ytError && SUPPORTS_TAB_CAPTURE ? (
+                      <>
+                        <button className="capture-btn big" onClick={() => startTabCapture(true)}>
+                          Capture That Tab
+                        </button>
+                        <div className="player-hint">
+                          Open the video on YouTube in another tab, press play, then
+                          pick that tab and switch on <em>Also share tab audio</em>.
+                        </div>
+                      </>
+                    ) : SUPPORTS_TAB_CAPTURE ? (
+                      <>
+                        <button className="capture-btn big" onClick={() => startTabCapture(false)}>
+                          Let Blobby Listen
+                        </button>
+                        <div className="player-hint">
+                          Switch on <em>Also share tab audio</em>, then click <em>Allow</em>.
+                        </div>
+                        <button className="guide-alt" onClick={() => startTabCapture(true)}>
+                          Capture a different tab instead
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="capture-btn big" onClick={startMicListen}>
+                          Let Blobby Listen
+                        </button>
+                        <div className="player-hint">
+                          {ytError
+                            ? 'Play it in the YouTube app out loud - Blobby listens through your mic.'
+                            : 'Turn your volume up - Blobby listens through your mic.'}
+                        </div>
+                      </>
+                    )}
+                    {linkService === 'spotify' && (
+                      <div className="player-hint">
+                        Full songs need a logged-in Spotify Premium account - otherwise
+                        30-second previews.
+                      </div>
+                    )}
+                    {captureError && <div className="capture-error">{captureError}</div>}
+                  </>
+                ))}
+
+                {mode === 'file' && (
+                  <div className="player-controls">
+                    <button className="play-btn" onClick={togglePlay}>
+                      {isPlaying ? '||' : '\u25B6'}
+                    </button>
+                    <span className="time">
+                      {formatTime(displayProgress)} / {formatTime(duration)}
+                    </span>
+                  </div>
+                )}
               </div>
-              <button className="guide-alt" onClick={() => startTabCapture(true)}>
-                Music playing in a different tab? Capture that instead
-              </button>
-            </>
-          ) : (
-            <>
-              <div><strong>One more step!</strong> Turn your volume up.</div>
-              <button className="capture-btn big" onClick={startMicListen}>
-                Let Blobby Listen
-              </button>
-              <div className="guide-steps">
-                Blobby listens through your microphone - allow access when asked.
-              </div>
-            </>
+            </div>
           )}
-        </div>
-      )}
 
-      {!isFullscreen && mode && showYtPopover && (
-        <>
-          <div className="search-backdrop" onClick={() => setShowYtPopover(false)} />
-          <div className="search-popover">
-            {youtubeUI}
-          </div>
-        </>
-      )}
-
-      {!isFullscreen && mode && (
-        <div className="bottom-bar">
           {mode === 'file' && (
             <div
               className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
@@ -656,78 +748,41 @@ function App() {
             </div>
           )}
 
-          <div className="bar-row">
+          {mode === 'mic' && (
+            <div className="player-controls">
+              <span className="capture-live">
+                <span className="live-dot" />
+                Listening to your microphone
+              </span>
+            </div>
+          )}
+
+          {mode && <div className="player-bottom">
             <div className="source-tabs">
-              <button className={`tab ${mode === 'file' ? 'active' : ''}`} onClick={() => document.getElementById('file-pick').click()}>
-                File
+              <button
+                className={`tab ${showYtPopover || mode === 'link' ? 'active' : ''}`}
+                onClick={() => setShowYtPopover(v => !v)}
+              >
+                Link
               </button>
               <button className={`tab ${mode === 'mic' ? 'active' : ''}`} onClick={startMic}>
                 Mic
               </button>
-              <button
-                className={`tab ${showYtPopover || mode === 'youtube' ? 'active' : ''}`}
-                onClick={() => setShowYtPopover(v => !v)}
-              >
-                YouTube
+              <button className={`tab ${mode === 'file' ? 'active' : ''}`} onClick={() => document.getElementById('file-pick').click()}>
+                File
               </button>
               <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
             </div>
 
-            {mode === 'file' && (
-              <>
-                <button className="play-btn" onClick={togglePlay}>
-                  {isPlaying ? '||' : '\u25B6'}
-                </button>
-                <span className="time">
-                  {formatTime(displayProgress)} / {formatTime(duration)}
-                </span>
-                <span className="file-name">{fileName}</span>
-              </>
-            )}
-
-            {((mode === 'file' && hasVideo) || mode === 'youtube') && (
+            {mode === 'link' && linkService === 'youtube' && (
               <button
-                className={`tab ${showVideo ? 'active' : ''}`}
-                onClick={() => setShowVideo(v => !v)}
+                className={`tab ${ytLoop ? 'active' : ''}`}
+                onClick={toggleYtLoop}
+                title="Replay the video or playlist when it ends"
               >
-                Video
+                Loop
               </button>
             )}
-
-            {mode === 'youtube' && (
-              <>
-                <button
-                  className={`tab ${ytLoop ? 'active' : ''}`}
-                  onClick={toggleYtLoop}
-                  title="Replay the video or playlist when it ends"
-                >
-                  Loop
-                </button>
-                {capturing ? (
-                  <>
-                    <span className="capture-live">
-                      <span className="live-dot" />
-                      {SUPPORTS_TAB_CAPTURE ? 'Capturing' : 'Listening'}
-                    </span>
-                    <button className="tab" onClick={stopYtAudio}>Stop</button>
-                  </>
-                ) : (
-                  <button
-                    className="capture-btn"
-                    onClick={() => (SUPPORTS_TAB_CAPTURE ? startTabCapture(false) : startMicListen())}
-                    title={SUPPORTS_TAB_CAPTURE
-                      ? 'A popup will ask to share this tab - switch on "Also share tab audio", then click Allow'
-                      : 'Blobby listens through your microphone'}
-                  >
-                    Let Blobby Listen
-                  </button>
-                )}
-                {captureError && <span className="capture-error">{captureError}</span>}
-                <span className="file-name">{fileName}</span>
-              </>
-            )}
-
-            {mode === 'mic' && <span className="mic-label">Listening...</span>}
 
             {document.fullscreenEnabled && <button className="fullscreen-btn" onClick={toggleFullscreen} title="Toggle fullscreen">
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -737,9 +792,8 @@ function App() {
                 <polyline points="5,13 1,13 1,9" />
               </svg>
             </button>}
-          </div>
-        </div>
-      )}
+          </div>}
+      </div>
     </div>
   );
 }

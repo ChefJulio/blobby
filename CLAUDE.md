@@ -22,13 +22,13 @@ No test suite exists. Validate manually: `npm run dev`, test mic input, drag-dro
 
 ### Audio Pipeline (App.jsx)
 
-Three sources: mic via `getUserMedia()` (treated as mono - phone mics deliver imbalanced stereo), local file via a `<video>` element, or YouTube via `getDisplayMedia()` tab-audio capture (desktop Chromium only; an embedded IFrame API player plays in-page and the user grants a one-time share of the tab's audio). Every source feeds Web Audio's `AudioContext`; a `ChannelSplitter` creates three `AnalyserNode` instances (mixed, left, right) passed as `audioSource` prop to Blobby.
+Three sources: mic via `getUserMedia()` (mono, voice-call processing disabled), local file via a `<video>` element, or pasted links (mode `'link'`: YouTube via the IFrame Player API, Spotify/SoundCloud via their official embed iframes) whose audio reaches the analysers through `getDisplayMedia()` tab capture on desktop Chromium, or the mic fallback elsewhere. Every source feeds Web Audio's `AudioContext`; a `ChannelSplitter` creates three `AnalyserNode` instances (mixed, left, right) passed as `audioSource` prop to Blobby.
 
 ```
 File/Mic/TabCapture → AudioContext → ChannelSplitter → [analyserMixed, analyserL, analyserR]
 ```
 
-YouTube specifics: direct stream audio is impossible (no CORS on googlevideo URLs; Web Audio outputs silence for tainted media) - tab capture is the only web-app path. Audius streaming existed before YouTube support and was removed in July 2026 (git history has it).
+Link-mode specifics: direct stream audio is impossible for all three services (no CORS; Web Audio outputs silence for tainted media) - tab capture is the only web-app path. Spotify embeds play full tracks only for logged-in Premium users (30s previews otherwise). All controls live in the bottom-center player card (`.player-card`), which stays mounted (visibility-hidden) in fullscreen/hidden states so embeds keep playing. Audius streaming existed before link support and was removed in July 2026 (git history has it).
 
 ### Visualization Engine (Blobby.jsx)
 

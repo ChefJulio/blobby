@@ -22,9 +22,14 @@ body {
   transition: bottom 0.4s ease;
 }
 
-/* Landing: raise the blob so the intro text and cards fit below it */
+/* Landing: raise the blob so the intro card fits below it */
 .blobby-container.landing {
-  bottom: 34vh;
+  bottom: 250px;
+}
+
+/* Player card hidden: give the blob nearly the whole screen */
+.blobby-container.dock-min {
+  bottom: 40px;
 }
 
 .blobby-container.fullscreen {
@@ -36,66 +41,230 @@ body {
   cursor: none;
 }
 
-/* Video picture-in-picture */
-.video-pip {
+/* Player card - the single contained control surface */
+.player-card {
   position: absolute;
-  bottom: 80px;
-  right: 16px;
-  z-index: 15;
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
-  display: none;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: min(640px, calc(100vw - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(12, 10, 24, 0.88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
-.video-pip.visible {
-  display: block;
-}
-
-.video-pip video {
-  display: block;
-  max-width: 260px;
-  max-height: 180px;
-  border-radius: 10px;
-}
-
-
-/* YouTube picture-in-picture */
-.youtube-pip {
-  position: absolute;
-  bottom: 80px;
-  right: 16px;
-  z-index: 15;
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
-}
-
-.youtube-pip.hidden {
-  /* display:none would still work, but visibility keeps layout stable */
+.player-card.card-hidden {
+  /* Hide but keep mounted so the YouTube iframe keeps playing */
   visibility: hidden;
 }
 
-.youtube-pip iframe {
-  display: block;
-  width: 320px;
-  height: 180px;
-  border: 0;
+/* Collapse chevron in the card's top-right corner */
+.card-hide-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
 }
 
-/* Small screens: shrink the player and move it to the top-right corner so
-   it can't cover the blob's center or the capture guide at the bottom */
-@media (max-width: 700px), (max-height: 500px) {
-  .youtube-pip {
-    top: 12px;
-    right: 12px;
-    bottom: auto;
+.card-hide-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: white;
+}
+
+/* Restore pill shown while the card is hidden */
+.player-show-btn {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(12, 10, 24, 0.75);
+  color: rgba(255, 255, 255, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.player-show-btn:hover {
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.player-media-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.player-media {
+  position: relative;
+  width: 190px;
+  aspect-ratio: 16 / 9;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #000;
+}
+
+.player-media.collapsed {
+  display: none;
+}
+
+/* Spotify/SoundCloud players are short-and-wide, not 16:9 - stack them
+   above the controls at full card width. Top margin keeps the full-width
+   embed clear of the hide chevron. */
+.player-media-row.stacked {
+  flex-direction: column;
+  margin-top: 22px;
+}
+
+.player-media.wide {
+  width: 100%;
+  aspect-ratio: auto;
+  height: 152px;
+  background: transparent;
+}
+
+.player-media-row.stacked .player-side {
+  width: 100%;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-media-row.stacked .player-title {
+  flex: 0 0 100%;
+}
+
+.player-media iframe,
+.player-media video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  object-fit: contain;
+}
+
+.yt-player-box {
+  width: 100%;
+  height: 100%;
+}
+
+.player-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.player-title {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.player-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.player-hint em {
+  font-style: normal;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-bottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The link input stretches inside the card */
+.player-card .search-wrapper,
+.player-card .search-row {
+  width: 100%;
+}
+
+.player-card .search-input {
+  flex: 1;
+  width: auto;
+}
+
+/* Canvas docking: keep the blob clear of the player card */
+.blobby-container.dock-tall {
+  bottom: 210px;
+}
+
+.blobby-container.dock-xtall {
+  bottom: 300px;
+}
+
+.blobby-container.dock-slim {
+  bottom: 120px;
+}
+
+@media (max-width: 700px) {
+  .player-media {
+    width: 136px;
   }
 
-  .youtube-pip iframe {
-    width: min(44vw, 240px);
-    height: auto;
-    aspect-ratio: 16 / 9;
+  .player-card {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .player-card .capture-btn.big {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .blobby-container.dock-tall {
+    bottom: 185px;
+  }
+
+  /* Landing cards wrap to two rows on narrow screens */
+  .blobby-container.landing {
+    bottom: 330px;
   }
 }
 
@@ -134,41 +303,34 @@ body {
   border-radius: 16px;
 }
 
-/* Landing overlay */
-.controls-overlay {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+/* Landing content inside the player card */
+.card-landing {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  padding-bottom: max(12vh, calc(40px + env(safe-area-inset-bottom, 0px)));
-  z-index: 10;
+  gap: 10px;
+  text-align: center;
+  padding-top: 4px;
 }
 
-.controls-overlay h1 {
-  margin-top: 16px;
-  font-size: 48px;
+.card-landing h1 {
+  font-size: 26px;
   font-weight: 700;
-  letter-spacing: -1px;
+  letter-spacing: -0.5px;
 }
 
-.controls-overlay p {
+.card-landing p {
   color: rgba(255, 255, 255, 0.5);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 /* Landing source cards */
 .source-cards {
   display: flex;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 2px;
   flex-wrap: wrap;
   justify-content: center;
-  max-width: 720px;
-  padding: 0 16px;
 }
 
 .source-card {
@@ -246,42 +408,9 @@ body {
   100% { opacity: 0; }
 }
 
-/* Capture guidance banner */
-.capture-guide {
-  position: absolute;
-  bottom: 76px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  max-width: 440px;
-  padding: 16px 22px;
-  border-radius: 12px;
-  border: 1px solid rgba(120, 180, 255, 0.4);
-  background: rgba(20, 30, 60, 0.92);
-  font-size: 13px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.85);
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-
-.capture-guide em {
-  font-style: normal;
-  font-weight: 600;
-  color: white;
-}
-
-.guide-steps {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
-}
-
 .capture-btn.big {
-  padding: 12px 36px;
-  font-size: 15px;
+  padding: 10px 24px;
+  font-size: 14px;
   font-weight: 600;
   border-radius: 10px;
   border-color: rgba(140, 190, 255, 0.9);
@@ -384,20 +513,6 @@ body {
   font-size: 13px;
 }
 
-/* Search popover (bottom-left, above tabs) */
-.search-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 11;
-}
-
-.search-popover {
-  position: absolute;
-  bottom: 60px;
-  left: 16px;
-  z-index: 12;
-}
-
 button {
   padding: 10px 24px;
   border-radius: 8px;
@@ -414,18 +529,7 @@ button:hover {
   border-color: rgba(255, 255, 255, 0.4);
 }
 
-/* Bottom bar */
-.bottom-bar {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 10;
-  padding: 0 16px calc(10px + env(safe-area-inset-bottom, 0px));
-  background: linear-gradient(transparent, rgba(8, 6, 15, 0.9) 40%);
-}
-
-/* Seek bar — full width, above controls */
+/* Seek bar — full width, inside the player card */
 .seek-bar {
   width: 100%;
   height: 6px;
@@ -433,9 +537,9 @@ button:hover {
   border-radius: 3px;
   cursor: pointer;
   position: relative;
-  margin-bottom: 10px;
   /* Larger touch target without visual change */
   padding: 14px 0;
+  margin: -8px 0;
   background-clip: content-box;
   -webkit-tap-highlight-color: transparent;
   touch-action: none;
@@ -473,12 +577,6 @@ button:hover {
 .seek-bar:hover .seek-thumb,
 .seek-bar.scrubbing .seek-thumb {
   opacity: 1;
-}
-
-.bar-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
 }
 
 /* Source tabs */
@@ -589,25 +687,6 @@ button:hover {
   font-size: 11px;
   color: rgba(255, 140, 120, 0.9);
   flex-shrink: 0;
-}
-
-/* Mic label */
-.mic-label {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
-  flex: 1;
-}
-
-/* File name */
-.file-name {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.3);
-  font-family: monospace;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
 }
 
 /* Fullscreen button */
