@@ -267,9 +267,17 @@ function App() {
       // Default: one-step dialog offering only this tab (preferCurrentTab).
       // pickAnyTab: full picker so any tab, window, or screen can be the
       // audio source; selfBrowserSurface makes this tab choosable there too.
+      // audio:true would route capture through Chrome's echo-cancellation
+      // pipeline, which downmixes to MONO - disable processing and ask for
+      // both channels so the blob gets true stereo.
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: 2,
+        },
         ...(pickAnyTab ? { selfBrowserSurface: 'include' } : { preferCurrentTab: true }),
       });
       const audioTracks = stream.getAudioTracks();
