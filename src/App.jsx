@@ -1,6 +1,45 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { motion, MotionConfig } from 'motion/react';
+import {
+  ArrowRight, AudioLines, ChevronDown, ChevronUp, CircleHelp, FileAudio,
+  Link2, Maximize, Mic, Pause, Play, Repeat, Square, Upload,
+} from 'lucide-react';
 import Blobby from './Blobby';
+import AutoHeight from './AutoHeight';
 import './App.css';
+
+const EASE_OUT = [0.2, 0, 0, 1];
+
+// Player card states. 'idle' fades the controls while music plays and nobody
+// is interacting; 'hidden' is the explicit hide / fullscreen state. The card
+// stays mounted in every state so embeds keep playing.
+const CARD_VARIANTS = {
+  shown: { opacity: 1, y: 0, visibility: 'visible', pointerEvents: 'auto', transition: { duration: 0.3, ease: EASE_OUT } },
+  idle: { opacity: 0, y: 6, pointerEvents: 'none', transition: { duration: 0.8, ease: 'easeInOut' } },
+  hidden: {
+    opacity: 0, y: 24, pointerEvents: 'none',
+    transition: { duration: 0.25, ease: EASE_OUT },
+    transitionEnd: { visibility: 'hidden' },
+  },
+};
+
+const PILL_TRANSITION = { type: 'spring', stiffness: 500, damping: 38 };
+
+const IDLE_MS = 3000;
+const FULLSCREEN_IDLE_MS = 1200;
+const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel'];
+
+// Segmented-control button; the active one hosts the shared pill, which
+// Motion slides between buttons via layoutId
+function SegItem({ active, icon, label, onClick }) {
+  return (
+    <button className={`seg-item${active ? ' active' : ''}`} aria-pressed={active} onClick={onClick}>
+      {active && <motion.span layoutId="seg-pill" className="seg-pill" transition={PILL_TRANSITION} />}
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
 
 const ACCEPT_MEDIA = 'audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.wma,.opus,.webm,.mp4,.mov';
 
@@ -86,8 +125,10 @@ function App() {
   const [hasVideo, setHasVideo] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fsDegraded, setFsDegraded] = useState(false);
-  const [cursorHidden, setCursorHidden] = useState(false);
-  const cursorTimerRef = useRef(null);
+  const [idle, setIdle] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const cardRef = useRef(null);
+  const fileInputRef = useRef(null);
   // Link mode (YouTube / Spotify / SoundCloud embeds + tab capture)
   const [linkService, setLinkService] = useState(null); // 'youtube' | 'spotify' | 'soundcloud'
   const [webEmbedUrl, setWebEmbedUrl] = useState(null); // spotify/soundcloud iframe src
@@ -134,6 +175,7 @@ function App() {
     setCapturing(false);
     setCaptureError('');
     setYtError('');
+    setShowHelp(false);
   }, []);
 
   const setupAnalysers = useCallback((ctx, source, isMono, monitor = true) => {
@@ -310,6 +352,7 @@ function App() {
     setLinkService(target.service);
     setYtLinkInput('');
     setShowYtPopover(false);
+    setShowHelp(false);
     setYtNotice('');
     setYtError('');
     if (target.service === 'youtube') {
@@ -539,11 +582,7 @@ function App() {
     const onChange = () => {
       const fs = !!document.fullscreenElement;
       setIsFullscreen(fs);
-      if (!fs) {
-        setCursorHidden(false);
-        setFsDegraded(false);
-        clearTimeout(cursorTimerRef.current);
-      }
+      if (!fs) setFsDegraded(false);
     };
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
@@ -560,13 +599,37 @@ function App() {
     return () => { clearTimeout(timer); window.removeEventListener('resize', check); };
   }, [isFullscreen]);
 
-  const resetCursorTimer = useCallback(() => {
-    setCursorHidden(false);
-    clearTimeout(cursorTimerRef.current);
-    if (isFullscreen) {
-      cursorTimerRef.current = setTimeout(() => setCursorHidden(true), 1000);
-    }
-  }, [isFullscreen]);
+  // Idle: fade the controls and cursor out while Blobby is dancing and nobody
+  // is interacting. Any pointer, key or wheel input brings them back. Never
+  // idles while the user is mid-task (typing a link, reading help, an error).
+  const audioLive = !!audioSource && (mode !== 'file' || isPlaying);
+  const canIdle = isFullscreen
+    || (audioLive && !scrubbing && !showYtPopover && !showHelp && !captureError);
+  const controlsIdle = idle && canIdle;
+
+  useEffect(() => {
+    if (!canIdle) return;
+    const delay = isFullscreen ? FULLSCREEN_IDLE_MS : IDLE_MS;
+    const hoverCapable = window.matchMedia('(hover: hover)').matches;
+    let timer;
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        // A mouse resting on the card keeps it awake - checked via :hover
+        // because events over an embed iframe never reach this window
+        if (hoverCapable && cardRef.current?.matches(':hover')) arm();
+        else setIdle(true);
+      }, delay);
+    };
+    const wake = () => { setIdle(false); arm(); };
+    ACTIVITY_EVENTS.forEach(e => window.addEventListener(e, wake, { passive: true }));
+    arm();
+    return () => {
+      clearTimeout(timer);
+      ACTIVITY_EVENTS.forEach(e => window.removeEventListener(e, wake));
+      setIdle(false);
+    };
+  }, [canIdle, isFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
     if (document.fullscreenElement) {
@@ -579,53 +642,118 @@ function App() {
   const displayProgress = scrubbing ? scrubPos : progress;
   const seekPercent = duration ? `${(displayProgress / duration) * 100}%` : '0%';
 
-  const youtubeUI = (
-    <div className="search-wrapper">
-      <form
-        className="search-row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const target = parseLinkTarget(ytLinkInput);
-          if (target) playLink(target);
-          else setYtNotice('Not a valid YouTube, Spotify, or SoundCloud link');
-        }}
-      >
+  const submitLink = (e) => {
+    e.preventDefault();
+    const target = parseLinkTarget(ytLinkInput);
+    if (target) playLink(target);
+    else setYtNotice('Not a YouTube, Spotify, or SoundCloud link');
+  };
+
+  const linkUI = (
+    <form className="link-form" onSubmit={submitLink}>
+      <div className="link-field">
+        <Link2 className="link-field-icon" size={16} aria-hidden="true" />
         <input
-          className="search-input"
+          className="link-input"
           type="text"
+          inputMode="url"
+          enterKeyHint="go"
+          autoComplete="off"
+          spellCheck={false}
+          aria-label="Song or video link"
           placeholder="Paste a YouTube, Spotify, or SoundCloud link"
           value={ytLinkInput}
           onChange={(e) => { setYtLinkInput(e.target.value); setYtNotice(''); }}
           autoFocus
         />
-        {ytLinkInput && <button className="search-go" type="submit">Go</button>}
-      </form>
-      <div className="search-hint">Songs, videos, albums, and playlists all work - copy the link from the app or address bar</div>
-      {ytNotice && (
-        <div className="search-results">
-          <div className="search-empty">{ytNotice}</div>
-        </div>
-      )}
-    </div>
+        {ytLinkInput && (
+          <button className="link-submit" type="submit" aria-label="Play link">
+            <ArrowRight size={16} />
+          </button>
+        )}
+      </div>
+      {ytNotice
+        ? <div className="link-error" role="alert">{ytNotice}</div>
+        : <div className="link-hint">Songs, albums and playlists all work</div>}
+    </form>
   );
 
+  // Capture guidance for link mode: one primary action and one essential
+  // hint up front; secondary options sit behind "More help"
+  const blockedCapture = ytError && SUPPORTS_TAB_CAPTURE;
+  const helpItems = [
+    SUPPORTS_TAB_CAPTURE && !ytError && (
+      <button key="tab" className="btn-link" onClick={() => startTabCapture(true)}>
+        Capture a different tab instead
+      </button>
+    ),
+    linkService === 'spotify' && (
+      <div key="spotify" className="player-hint">
+        Full songs need a logged-in Spotify Premium account - otherwise 30-second previews.
+      </div>
+    ),
+  ].filter(Boolean);
+
+  const linkControls = capturing ? (
+    <div className="live-status">
+      <span className="live-dot" />
+      {SUPPORTS_TAB_CAPTURE ? 'Capturing tab audio' : 'Listening'}
+      <button className="btn-ghost" onClick={stopYtAudio}>
+        <Square size={10} fill="currentColor" /> Stop
+      </button>
+    </div>
+  ) : (
+    <>
+      <button
+        className="btn-primary"
+        onClick={blockedCapture ? () => startTabCapture(true)
+          : SUPPORTS_TAB_CAPTURE ? () => startTabCapture(false)
+          : startMicListen}
+      >
+        <AudioLines size={16} />
+        {blockedCapture ? 'Capture That Tab' : 'Let Blobby Listen'}
+      </button>
+      <div className="player-hint">
+        {blockedCapture ? (
+          <>Open the video on YouTube in another tab, press play, then pick that tab and
+            switch on <em>Also share tab audio</em>.</>
+        ) : SUPPORTS_TAB_CAPTURE ? (
+          <>Switch on <em>Also share tab audio</em>, then click <em>Allow</em>.</>
+        ) : ytError ? (
+          'Play it in the YouTube app out loud - Blobby listens through your mic.'
+        ) : (
+          'Turn your volume up - Blobby listens through your mic.'
+        )}
+      </div>
+      {captureError && <div className="capture-error" role="alert">{captureError}</div>}
+      {helpItems.length > 0 && (
+        <>
+          <div className="help-row">
+            <button className="btn-ghost" aria-expanded={showHelp} onClick={() => setShowHelp(v => !v)}>
+              <CircleHelp size={14} /> More help
+            </button>
+          </div>
+          {showHelp && <div className="help-body">{helpItems}</div>}
+        </>
+      )}
+    </>
+  );
+
+  const view = mode || 'landing';
+  const activeTab = showYtPopover ? 'link' : mode;
+  const cardState = isFullscreen || playerHidden ? 'hidden' : controlsIdle ? 'idle' : 'shown';
+
   return (
+    <MotionConfig reducedMotion="user">
     <div
-      className="app"
+      className={`app${controlsIdle ? ' idle' : ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       <div
-        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}${cursorHidden ? ' cursor-hidden' : ''}${!isFullscreen ? (
-          playerHidden ? ' dock-min'
-            : !mode ? ' landing'
-            : mode === 'mic' ? ' dock-slim'
-            : webEmbedUrl ? ' dock-xtall'
-            : ' dock-tall'
-        ) : ''}`}
+        className={`blobby-container${isFullscreen ? ' fullscreen' : ''}`}
         onClick={isFullscreen ? () => document.exitFullscreen() : undefined}
-        onMouseMove={isFullscreen ? resetCursorTimer : undefined}
       >
         <Blobby audioSource={audioSource} />
       </div>
@@ -639,215 +767,190 @@ function App() {
 
       {!isFullscreen && dragOver && (
         <div className="drag-overlay">
-          <div className="drag-label">Drop audio file</div>
+          <div className="drag-label"><Upload size={22} /> Drop a song to play it</div>
         </div>
       )}
 
       {playerHidden && !isFullscreen && (
-        <button className="player-show-btn" onClick={() => setPlayerHidden(false)} title="Show controls">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <polyline points="2,8 6,4 10,8" />
-          </svg>
-        </button>
+        <motion.button
+          className="player-show-btn"
+          initial={{ opacity: 0, y: 8 }}
+          animate={controlsIdle ? { opacity: 0 } : { opacity: 1, y: 0 }}
+          transition={{ duration: controlsIdle ? 0.8 : 0.25 }}
+          onClick={() => setPlayerHidden(false)}
+          aria-label="Show controls"
+          title="Show controls"
+        >
+          <ChevronUp size={16} />
+        </motion.button>
       )}
 
       {/* Player card: all controls and the media preview live here. Kept
-          mounted (visibility-hidden) when hidden or fullscreen so playback
-          continues - the YouTube iframe would stop if unmounted. */}
-      <div className={`player-card${isFullscreen || playerHidden ? ' card-hidden' : ''}`}>
-        <button className="card-hide-btn" onClick={() => setPlayerHidden(true)} title="Hide controls">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <polyline points="2,4 6,8 10,4" />
-          </svg>
-        </button>
+          mounted in every state so playback continues - the embeds would
+          stop if unmounted. */}
+      <motion.div
+        ref={cardRef}
+        className="player-card"
+        initial={false}
+        animate={cardState}
+        variants={CARD_VARIANTS}
+        aria-hidden={cardState === 'hidden' || undefined}
+      >
+        <AutoHeight>
+          {/* Keyed on the view so each mode's content fades in fresh */}
+          <motion.div
+            key={view}
+            className="card-body"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.25, ease: EASE_OUT }}
+          >
+            {view === 'landing' && (
+              <div className="card-landing">
+                <h1 className="wordmark">Blobby</h1>
+                <p className="tagline">Blobby likes to dance</p>
+                <div className="source-cards">
+                  <button
+                    className={`source-card${showYtLanding ? ' selected' : ''}`}
+                    aria-expanded={showYtLanding}
+                    onClick={() => setShowYtLanding(v => !v)}
+                  >
+                    <span className="source-icon"><Link2 size={18} /></span>
+                    <span className="source-text">
+                      <span className="source-title">Paste a link</span>
+                      <span className="source-desc">YouTube, Spotify, SoundCloud</span>
+                    </span>
+                  </button>
+                  <button className="source-card" onClick={startMic}>
+                    <span className="source-icon"><Mic size={18} /></span>
+                    <span className="source-text">
+                      <span className="source-title">Microphone</span>
+                      <span className="source-desc">Blobby hears the room</span>
+                    </span>
+                  </button>
+                  <label className="source-card">
+                    <span className="source-icon"><FileAudio size={18} /></span>
+                    <span className="source-text">
+                      <span className="source-title">My own file</span>
+                      <span className="source-desc">Songs or videos</span>
+                    </span>
+                    <input className="sr-only" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} />
+                  </label>
+                </div>
+                {showYtLanding ? linkUI : <p className="drop-hint">...or drag a song onto this page</p>}
+              </div>
+            )}
 
-        {!mode && (
-          <div className="card-landing">
-            <h1>Blobby</h1>
-            <p>Blobby likes to dance</p>
-            <div className="source-cards">
-              <button
-                className={`source-card${showYtLanding ? ' selected' : ''}`}
-                onClick={() => setShowYtLanding(v => !v)}
-              >
-                <span className="card-title">Paste a link</span>
-                <span className="card-desc">YouTube, Spotify, SoundCloud</span>
-              </button>
-              <button className="source-card" onClick={startMic}>
-                <span className="card-title">Microphone</span>
-                <span className="card-desc">Blobby hears the room</span>
-              </button>
-              <label className="source-card">
-                <span className="card-title">My own file</span>
-                <span className="card-desc">Songs or videos</span>
-                <input type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
-              </label>
-            </div>
-            {showYtLanding && youtubeUI}
-            {!showYtLanding && <p className="drop-hint">...or just drag a song onto this page</p>}
-          </div>
-        )}
+            {mode && showYtPopover && linkUI}
 
-        {mode && showYtPopover && youtubeUI}
-
-          {(mode === 'link' || mode === 'file') && (
-            <div className={`player-media-row${webEmbedUrl ? ' stacked' : ''}`}>
-              {mode === 'link' ? (
-                linkService === 'youtube' ? (
-                  (ytVideoId || ytListId) && (
-                    /* The IFrame API replaces the inner div - React must never
-                       touch inside .yt-player-box */
-                    <div className="player-media" key={`${ytVideoId}|${ytListId}`}>
-                      <div className="yt-player-box">
-                        <div ref={ytPlayerBoxRef} />
+            {(mode === 'link' || mode === 'file') && (
+              <div className={`player-media-row${webEmbedUrl ? ' stacked' : ''}`}>
+                {mode === 'link' ? (
+                  linkService === 'youtube' ? (
+                    (ytVideoId || ytListId) && (
+                      /* The IFrame API replaces the inner div - React must never
+                         touch inside .yt-player-box */
+                      <div className="player-media" key={`${ytVideoId}|${ytListId}`}>
+                        <div className="yt-player-box">
+                          <div ref={ytPlayerBoxRef} />
+                        </div>
+                        {ytError && <div className="yt-error">{ytError}</div>}
                       </div>
-                      {ytError && <div className="yt-error">{ytError}</div>}
+                    )
+                  ) : (
+                    <div className={`player-media wide ${linkService}`}>
+                      <iframe
+                        ref={scIframeRef}
+                        src={webEmbedUrl}
+                        title={`${linkService} player`}
+                        allow="autoplay; encrypted-media"
+                      />
                     </div>
                   )
                 ) : (
-                  <div className="player-media wide">
-                    <iframe
-                      ref={scIframeRef}
-                      src={webEmbedUrl}
-                      title={`${linkService} player`}
-                      allow="autoplay; encrypted-media"
-                    />
-                  </div>
-                )
-              ) : (
-                <div className={`player-media${hasVideo ? '' : ' collapsed'}`} ref={videoContainerRef} />
-              )}
-
-              <div className="player-side">
-                <div className="player-title">{fileName}</div>
-
-                {mode === 'link' && (capturing ? (
-                  <div className="player-controls">
-                    <span className="capture-live">
-                      <span className="live-dot" />
-                      {SUPPORTS_TAB_CAPTURE ? 'Capturing tab audio' : 'Listening'}
-                    </span>
-                    <button className="tab" onClick={stopYtAudio}>Stop</button>
-                  </div>
-                ) : (
-                  <>
-                    {ytError && SUPPORTS_TAB_CAPTURE ? (
-                      <>
-                        <button className="capture-btn big" onClick={() => startTabCapture(true)}>
-                          Capture That Tab
-                        </button>
-                        <div className="player-hint">
-                          Open the video on YouTube in another tab, press play, then
-                          pick that tab and switch on <em>Also share tab audio</em>.
-                        </div>
-                      </>
-                    ) : SUPPORTS_TAB_CAPTURE ? (
-                      <>
-                        <button className="capture-btn big" onClick={() => startTabCapture(false)}>
-                          Let Blobby Listen
-                        </button>
-                        <div className="player-hint">
-                          Switch on <em>Also share tab audio</em>, then click <em>Allow</em>.
-                        </div>
-                        <button className="guide-alt" onClick={() => startTabCapture(true)}>
-                          Capture a different tab instead
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button className="capture-btn big" onClick={startMicListen}>
-                          Let Blobby Listen
-                        </button>
-                        <div className="player-hint">
-                          {ytError
-                            ? 'Play it in the YouTube app out loud - Blobby listens through your mic.'
-                            : 'Turn your volume up - Blobby listens through your mic.'}
-                        </div>
-                      </>
-                    )}
-                    {linkService === 'spotify' && (
-                      <div className="player-hint">
-                        Full songs need a logged-in Spotify Premium account - otherwise
-                        30-second previews.
-                      </div>
-                    )}
-                    {captureError && <div className="capture-error">{captureError}</div>}
-                  </>
-                ))}
-
-                {mode === 'file' && (
-                  <div className="player-controls">
-                    <button className="play-btn" onClick={togglePlay}>
-                      {isPlaying ? '||' : '\u25B6'}
-                    </button>
-                    <span className="time">
-                      {formatTime(displayProgress)} / {formatTime(duration)}
-                    </span>
-                  </div>
+                  <div className={`player-media${hasVideo ? '' : ' collapsed'}`} ref={videoContainerRef} />
                 )}
+
+                <div className="player-side">
+                  {/* Spotify/SoundCloud embeds already show the title */}
+                  {!webEmbedUrl && <div className="player-title">{fileName}</div>}
+                  {mode === 'link' && linkControls}
+                </div>
               </div>
-            </div>
-          )}
-
-          {mode === 'file' && (
-            <div
-              className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
-              ref={seekBarRef}
-              onMouseDown={onSeekMouseDown}
-              onTouchStart={onSeekTouchStart}
-            >
-              <div className="seek-fill" style={{ width: seekPercent }} />
-              <div className="seek-thumb" style={{ left: seekPercent }} />
-            </div>
-          )}
-
-          {mode === 'mic' && (
-            <div className="player-controls">
-              <span className="capture-live">
-                <span className="live-dot" />
-                Listening to your microphone
-              </span>
-            </div>
-          )}
-
-          {mode && <div className="player-bottom">
-            <div className="source-tabs">
-              <button
-                className={`tab ${showYtPopover || mode === 'link' ? 'active' : ''}`}
-                onClick={() => setShowYtPopover(v => !v)}
-              >
-                Link
-              </button>
-              <button className={`tab ${mode === 'mic' ? 'active' : ''}`} onClick={startMic}>
-                Mic
-              </button>
-              <button className={`tab ${mode === 'file' ? 'active' : ''}`} onClick={() => document.getElementById('file-pick').click()}>
-                File
-              </button>
-              <input id="file-pick" type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
-            </div>
-
-            {mode === 'link' && linkService !== 'spotify' && (
-              <button
-                className={`tab ${ytLoop ? 'active' : ''}`}
-                onClick={toggleYtLoop}
-                title="Replay the video or playlist when it ends"
-              >
-                Loop
-              </button>
             )}
 
-            {document.fullscreenEnabled && <button className="fullscreen-btn" onClick={toggleFullscreen} title="Toggle fullscreen">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <polyline points="1,5 1,1 5,1" />
-                <polyline points="9,1 13,1 13,5" />
-                <polyline points="13,9 13,13 9,13" />
-                <polyline points="5,13 1,13 1,9" />
-              </svg>
-            </button>}
-          </div>}
-      </div>
+            {mode === 'file' && (
+              <div className="transport">
+                <button className="play-btn" onClick={togglePlay} aria-label={isPlaying ? 'Pause' : 'Play'}>
+                  {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+                </button>
+                <div
+                  className={`seek-bar${scrubbing ? ' scrubbing' : ''}`}
+                  ref={seekBarRef}
+                  onMouseDown={onSeekMouseDown}
+                  onTouchStart={onSeekTouchStart}
+                >
+                  <div className="seek-fill" style={{ width: seekPercent }} />
+                  <div className="seek-thumb" style={{ left: seekPercent }} />
+                </div>
+                <span className="time">
+                  {formatTime(displayProgress)} / {formatTime(duration)}
+                </span>
+              </div>
+            )}
+
+            {mode === 'mic' && (
+              <div className="live-status">
+                <span className="live-dot" />
+                Listening to your microphone
+              </div>
+            )}
+
+            {mode && (
+              <div className="player-bottom">
+                <div className="seg" role="group" aria-label="Audio source">
+                  <SegItem active={activeTab === 'link'} icon={<Link2 size={14} />} label="Link"
+                    onClick={() => setShowYtPopover(v => !v)} />
+                  <SegItem active={activeTab === 'mic'} icon={<Mic size={14} />} label="Mic"
+                    onClick={startMic} />
+                  <SegItem active={activeTab === 'file'} icon={<FileAudio size={14} />} label="File"
+                    onClick={() => fileInputRef.current?.click()} />
+                  <input ref={fileInputRef} type="file" accept={ACCEPT_MEDIA} onChange={handleFileInput} hidden />
+                </div>
+
+                {mode === 'link' && linkService !== 'spotify' && (
+                  <button
+                    className="icon-btn"
+                    aria-pressed={ytLoop}
+                    onClick={toggleYtLoop}
+                    aria-label="Loop"
+                    title="Replay the video or playlist when it ends"
+                  >
+                    <Repeat size={16} />
+                  </button>
+                )}
+
+                {document.fullscreenEnabled && (
+                  <button className="icon-btn" onClick={toggleFullscreen} aria-label="Fullscreen" title="Fullscreen">
+                    <Maximize size={16} />
+                  </button>
+                )}
+
+                <button
+                  className="icon-btn"
+                  onClick={() => setPlayerHidden(true)}
+                  aria-label="Hide controls"
+                  title="Hide controls"
+                >
+                  <ChevronDown size={18} />
+                </button>
+              </div>
+            )}
+          </motion.div>
+        </AutoHeight>
+      </motion.div>
     </div>
+    </MotionConfig>
   );
 }
 

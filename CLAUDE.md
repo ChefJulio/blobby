@@ -30,6 +30,13 @@ File/Mic/TabCapture → AudioContext → ChannelSplitter → [analyserMixed, ana
 
 Link-mode specifics: direct stream audio is impossible for all three services (no CORS; Web Audio outputs silence for tainted media) - tab capture is the only web-app path. Spotify embeds play full tracks only for logged-in Premium users (30s previews otherwise). All controls live in the bottom-center player card (`.player-card`), which stays mounted (visibility-hidden) in fullscreen/hidden states so embeds keep playing. Audius streaming existed before link support and was removed in July 2026 (git history has it).
 
+### UI Layout and Styling (App.jsx, App.css)
+
+- **Blobby is a fixed full-screen background** (`.blobby-container`, `100lvh`) and never resizes with UI state; the blob stays at true screen center. Everything else floats over it. Never tie the canvas size to the card's height.
+- **Player card** (`.player-card`) is a Motion component with three states (`CARD_VARIANTS`): `shown`, `idle` (faded while audio plays and nobody interacts; driven by the idle effect in App.jsx) and `hidden` (manual hide / fullscreen). It stays mounted in every state so embeds keep playing. Its height follows its content via `AutoHeight.jsx`.
+- **Design tokens** live in `:root` at the top of App.css (colors, type scale, spacing, radii, `--control-h`, easing). Use them instead of one-off values. Hover styles go inside `@media (hover: hover)`; card-width tweaks use `@container card` queries, not viewport media queries.
+- Icons come from `lucide-react`; animation from `motion` (`motion/react`), wrapped in `MotionConfig reducedMotion="user"`.
+
 ### Visualization Engine (Blobby.jsx)
 
 Single `requestAnimationFrame` loop in `draw()` processes audio and renders each frame:
