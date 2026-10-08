@@ -101,9 +101,11 @@ button {
 
 /* ==========================================================================
    Layout: Blobby is a fixed full-screen background that never resizes with
-   UI state - the player card floats over it. The canvas uses lvh (the
-   largest viewport) so mobile toolbars sliding in/out don't resize it,
-   while the overlay layer uses dvh so the card stays above the toolbar.
+   UI state - the player card floats over it. The canvas uses svh (the
+   viewport with browser toolbars shown): the page never scrolls, so the
+   toolbars never collapse and svh is exactly the visible area - the blob
+   centers on what the user sees. Being a fixed unit, it also ignores the
+   keyboard. lvh would extend under the toolbar and push the blob low.
    ========================================================================== */
 
 /* --vv-h / --vv-top mirror the visual viewport (set in App.jsx). When a
@@ -127,7 +129,7 @@ button {
   left: 0;
   width: 100%;
   height: 100vh;
-  height: 100lvh;
+  height: 100svh;
   overflow: hidden;
 }
 

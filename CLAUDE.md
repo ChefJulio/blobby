@@ -32,7 +32,7 @@ Link-mode specifics: direct stream audio is impossible for all three services (n
 
 ### UI Layout and Styling (App.jsx, App.css)
 
-- **Blobby is a fixed full-screen background** (`.blobby-container`, `100lvh`) and never resizes with UI state; the blob stays at true screen center. Everything else floats over it. Never tie the canvas size to the card's height.
+- **Blobby is a fixed full-screen background** (`.blobby-container`, `100svh` - the visible area, since the page never scrolls and toolbars never collapse; `lvh` centers the blob too low on phones) and never resizes with UI state; the blob stays at true screen center. Everything else floats over it. Never tie the canvas size to the card's height.
 - **Player card** (`.player-card`) is a Motion component with three states (`CARD_VARIANTS`): `shown`, `idle` (faded while audio plays and nobody interacts; driven by the idle effect in App.jsx) and `hidden` (manual hide / fullscreen). It stays mounted in every state so embeds keep playing. Its height follows its content via `AutoHeight.jsx`.
 - **Design tokens** live in `:root` at the top of App.css (colors, type scale, spacing, radii, `--control-h`, easing). Use them instead of one-off values. Hover styles go inside `@media (hover: hover)`; card-width tweaks use `@container card` queries, not viewport media queries.
 - Icons come from `lucide-react`; animation from `motion` (`motion/react`), wrapped in `MotionConfig reducedMotion="user"`.
