@@ -25,6 +25,10 @@ const CARD_VARIANTS = {
 
 const PILL_TRANSITION = { type: 'spring', stiffness: 500, damping: 38 };
 
+// Touch-first devices: skip autofocus (it pops the keyboard) and read links
+// from the clipboard instead
+const IS_TOUCH = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+
 const IDLE_MS = 3000;
 const FULLSCREEN_IDLE_MS = 1200;
 const ACTIVITY_EVENTS = ['pointermove', 'pointerdown', 'keydown', 'wheel'];
@@ -599,6 +603,31 @@ function App() {
     return () => { clearTimeout(timer); window.removeEventListener('resize', check); };
   }, [isFullscreen]);
 
+  // Mirror the visual viewport into CSS vars (see .app in App.css) so a
+  // mobile keyboard lifts the card above it instead of panning the page.
+  // Skipped while pinch-zoomed - that shrinks the visual viewport too.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const style = document.documentElement.style;
+    const update = () => {
+      if (Math.abs(vv.scale - 1) > 0.01) {
+        style.removeProperty('--vv-h');
+        style.removeProperty('--vv-top');
+        return;
+      }
+      style.setProperty('--vv-h', `${vv.height}px`);
+      style.setProperty('--vv-top', `${vv.offsetTop}px`);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
   // Idle: fade the controls and cursor out while Blobby is dancing and nobody
   // is interacting. Any pointer, key or wheel input brings them back. Never
   // idles while the user is mid-task (typing a link, reading help, an error).
@@ -642,6 +671,19 @@ function App() {
   const displayProgress = scrubbing ? scrubPos : progress;
   const seekPercent = duration ? `${(displayProgress / duration) * 100}%` : '0%';
 
+  // Touch devices: try the clipboard first so the keyboard never has to
+  // open; fall back to showing the text field. `open` reveals the field.
+  const openLinkEntry = async (open) => {
+    if (IS_TOUCH && navigator.clipboard?.readText) {
+      try {
+        const target = parseLinkTarget(await navigator.clipboard.readText());
+        if (target) { playLink(target); return; }
+        setYtNotice('No link on your clipboard - paste one here');
+      } catch { /* clipboard denied or dismissed - use the field */ }
+    }
+    open();
+  };
+
   const submitLink = (e) => {
     e.preventDefault();
     const target = parseLinkTarget(ytLinkInput);
@@ -661,10 +703,10 @@ function App() {
           autoComplete="off"
           spellCheck={false}
           aria-label="Song or video link"
-          placeholder="Paste a YouTube, Spotify, or SoundCloud link"
+          placeholder="YouTube, Spotify or SoundCloud link"
           value={ytLinkInput}
           onChange={(e) => { setYtLinkInput(e.target.value); setYtNotice(''); }}
-          autoFocus
+          autoFocus={!IS_TOUCH}
         />
         {ytLinkInput && (
           <button className="link-submit" type="submit" aria-label="Play link">
@@ -813,7 +855,9 @@ function App() {
                   <button
                     className={`source-card${showYtLanding ? ' selected' : ''}`}
                     aria-expanded={showYtLanding}
-                    onClick={() => setShowYtLanding(v => !v)}
+                    onClick={() => (showYtLanding
+                      ? setShowYtLanding(false)
+                      : openLinkEntry(() => setShowYtLanding(true)))}
                   >
                     <span className="source-icon"><Link2 size={18} /></span>
                     <span className="source-text">
@@ -910,7 +954,9 @@ function App() {
               <div className="player-bottom">
                 <div className="seg" role="group" aria-label="Audio source">
                   <SegItem active={activeTab === 'link'} icon={<Link2 size={14} />} label="Link"
-                    onClick={() => setShowYtPopover(v => !v)} />
+                    onClick={() => (showYtPopover
+                      ? setShowYtPopover(false)
+                      : openLinkEntry(() => setShowYtPopover(true)))} />
                   <SegItem active={activeTab === 'mic'} icon={<Mic size={14} />} label="Mic"
                     onClick={startMic} />
                   <SegItem active={activeTab === 'file'} icon={<FileAudio size={14} />} label="File"

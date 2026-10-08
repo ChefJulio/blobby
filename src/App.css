@@ -106,11 +106,19 @@ button {
    while the overlay layer uses dvh so the card stays above the toolbar.
    ========================================================================== */
 
+/* --vv-h / --vv-top mirror the visual viewport (set in App.jsx). When a
+   mobile keyboard opens, the height shrinks so the card sits above the
+   keyboard, and the translate cancels the browser's pan toward the focused
+   input so nothing jumps. The transform also makes .app the containing
+   block for the fixed canvas, so Blobby gets the same correction. */
 .app {
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100vh;
-  height: 100dvh;
-  position: relative;
+  height: var(--vv-h, 100dvh);
+  transform: translateY(var(--vv-top, 0px));
 }
 
 .blobby-container {
@@ -384,16 +392,21 @@ button {
   color: var(--text-3);
 }
 
-/* Narrow card: source cards become a list of rows */
+/* Narrow card: compact tiles - keeps the landing card short enough that
+   the whole blob stays visible above it on phones */
 @container card (max-width: 480px) {
-  .source-cards { grid-template-columns: 1fr; }
-
   .source-card {
-    flex-direction: row;
-    gap: var(--space-3);
-    padding: var(--space-3);
-    text-align: left;
+    gap: 6px;
+    padding: var(--space-3) var(--space-1);
   }
+
+  .source-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .source-desc,
+  .link-hint { display: none; }
 }
 
 .drop-hint {
